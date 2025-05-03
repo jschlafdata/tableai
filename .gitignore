@@ -1,0 +1,9 @@
+ui/pdf-viewer-app/public/outputs/*
+frontend/ui/public/synced/*
+api/data/*
+**__pycache__
+poetry.lock
+sync_history.db
+**.DS_Store
+processing/*
+**.env
