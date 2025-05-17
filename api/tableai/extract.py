@@ -142,7 +142,7 @@ def get_extraction(
                 'llamaVL':   ('llama3.2-vision', 'ollama-embeddings-ollama.portal-ai.tools')
             },
             model_choice='mistralVL',
-            username=api_service.service_config.ollama_api_key,
+            username=api_service.service_config.ollama_api_user,
             password=api_service.service_config.ollama_api_key
         )
 
