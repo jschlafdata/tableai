@@ -3,6 +3,7 @@ import Box from '@mui/material/Box';
 import DropboxFolders from '../components/integrations/DropboxFolders';
 
 export default function DropboxPage() {
+
   return (
     <Box
       sx={{

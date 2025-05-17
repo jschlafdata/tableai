@@ -32,6 +32,11 @@ scikit-learn = "1.6.1"
 scipy = "1.15.2"
 dropbox = "12.0.2"
 sqlmodel = "0.0.24"
+pytesseract = "0.3.13"
+ocrmypdf = "16.10.1"
+python-dotenv = "1.1.0"
+alembic = "1.15.2"
+dateparser = "1.2.1"
 
 [tool.poetry.dev-dependencies]
 # Add your development dependencies here. For example:

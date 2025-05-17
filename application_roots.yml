@@ -1,0 +1,61 @@
+# Path Configuration Schema
+# This file centrally defines all path relationships across modules
+
+# Base paths relative to project root
+base_paths:
+  tableai:
+    root: "tableai"
+    synced: "${tableai.root}/.synced"
+    processing: "${tableai.root}/.processing"
+    recovery: "${tableai.root}/.recovery"
+    llm: "${tableai.root}/llm"
+    tableai: "${tableai.root}/tableAi"
+    
+  api:
+    root: "api"
+    tableApi: "${api.root}/tableApi"
+    routers: "${api.tableApi}/routers"
+    
+  frontend:
+    root: "frontend"
+    tableUi: "${frontend.root}/tableUi"
+    components: "${frontend.tableUi}/components"
+
+# Specific application directories
+storage:
+  # Main data directories
+  synced_dir: "${tableai.synced}/{integration}/{file_type}/{uuid.ext}"
+  output_dir: "${tableai.processing}/outputs"
+  recovery_dir: "${tableai.recovery}"
+  llm_config_dir: "${tableai.llm}/outputs/{prompt}"
+  
+  # File type specific directories
+  core:
+    pdf_dir: "${storage.synced_dir}/{integration}/pdf"
+    excel_dir: "${tableai.synced}/{integration}/excel"
+    csv_dir: "${tableai.synced}/{integration}/csv"
+  
+  
+# Automated output dir based on the class & method performing the save operation.
+process_paths:
+  # Maps stage numbers to relative paths
+  0: "${storage.synced_dir}"
+  1: "${storage.output_dir}/{__class_instance__.name}/{__class_instance__.method.name}"
+
+# FastAPI mount points
+api_mounts:
+  # Base mounts
+  stage0: "/files/stage0"
+  extractions: "/files/extractions"
+  recovered: "/files/recovered"
+  
+  # Stage-specific mounts
+  # Corrupt PDFs that do not pass validations or recovery do not make it to next stages.
+  recovered_stage0: "${api_mounts.recovered}/stage0"
+  stage1: "${api_mounts.extractions}/stage1"
+  stage2: "${api_mounts.extractions}/stage2"
+  stage3: "${api_mounts.extractions}/stage3"
+  
+# Frontend URL mapping
+frontend_urls:
+  base_url: "http://localhost:3000"

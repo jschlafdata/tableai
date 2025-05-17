@@ -1,6 +1,5 @@
-// src/components/Layout.js
 import React, { useState } from 'react';
-import { Link, useLocation, Outlet } from 'react-router-dom';
+import { Link, useLocation, Outlet } from 'react-router-dom'; // ✅ Add these
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import Badge from '@mui/material/Badge';
@@ -14,14 +13,12 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import sidebarStyles from '../config/sidebarStyles';
 
-const SIDEBAR_WIDTH = 280;
-const COLLAPSED_WIDTH = 95;
-
-const NestedMenuItem = ({ item, collapsed, location, level = 0 }) => {
+const NestedMenuItem = ({ item, collapsed, location, level = 0, style }) => {
   const active = item.path === location.pathname;
   const iconSized = React.cloneElement(item.icon, {
-    sx: { fontSize: 30, color: active ? '#312E31' : '#767676' }
+    sx: style.icon({ active })
   });
 
   if (item.children?.length) {
@@ -29,7 +26,6 @@ const NestedMenuItem = ({ item, collapsed, location, level = 0 }) => {
       <SubMenu
         label={!collapsed && item.name}
         icon={iconSized}
-        routerLink={<Link to={item.path} />}
         active={active}
         defaultOpen={active}
         renderExpandIcon={({ open }) =>
@@ -47,6 +43,7 @@ const NestedMenuItem = ({ item, collapsed, location, level = 0 }) => {
             collapsed={collapsed}
             location={location}
             level={level + 1}
+            style={style}
           />
         ))}
       </SubMenu>
@@ -54,33 +51,18 @@ const NestedMenuItem = ({ item, collapsed, location, level = 0 }) => {
   }
 
   return (
-    <MenuItem
-      icon={iconSized}
-      routerLink={<Link to={item.path} />}
-      active={active}
-      rootStyles={{ paddingLeft: level * 16 }}
-    >
-      {!collapsed && item.name}
-      {!collapsed && item.hasBadge && (
-        <Badge
-          badgeContent={item.badgeContent}
-          sx={{
-            ml: 1,
-            '& .MuiBadge-badge': {
-              backgroundColor: item.badgeColor || '#88e2e2',
-              color: item.badgeTextColor || '#333',
-              fontSize: 10,
-              height: 20,
-              minWidth: 20,
-            }
-          }}
-        />
-      )}
+    <MenuItem icon={iconSized} active={active} rootStyles={{ paddingLeft: level * 16 }}>
+      <Link to={item.path} style={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center', width: '100%' }}>
+        {!collapsed && item.name}
+        {!collapsed && item.hasBadge && (
+          <Badge badgeContent={item.badgeContent} sx={style.badge(item)} />
+        )}
+      </Link>
     </MenuItem>
   );
 };
 
-const MenuSection = ({ title, items, collapsed, location }) => (
+const MenuSection = ({ title, items, collapsed, location, style }) => (
   <>
     {title && !collapsed && (
       <Box sx={{ px: 2, pt: 2 }}>
@@ -95,6 +77,7 @@ const MenuSection = ({ title, items, collapsed, location }) => (
         item={it}
         collapsed={collapsed}
         location={location}
+        style={style}
       />
     ))}
   </>
@@ -103,129 +86,78 @@ const MenuSection = ({ title, items, collapsed, location }) => (
 export default function Layout({ menuConfig }) {
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const { mainTitle = null, main = [], misc = [] } = menuConfig || {};
+
+  const theme = menuConfig?.theme || 'default';
+  const style = sidebarStyles[theme] || sidebarStyles.default;
+  const sections = Object.entries(menuConfig || {});
 
   return (
     <Box sx={{ display: 'flex', height: '100vh' }}>
       {/* Sidebar Container */}
       <Box
-  onClick={() => collapsed && setCollapsed(false)}
-  sx={{
-    width: collapsed ? COLLAPSED_WIDTH : SIDEBAR_WIDTH,
-    transition: 'width 0.3s ease',
-    bgcolor: '#ffffff'
-  }}
->
+        onClick={() => collapsed && setCollapsed(false)}
+        sx={{
+          width: collapsed ? style.sidebar.collapsedWidth : style.sidebar.width,
+          transition: 'width 0.3s ease',
+          bgcolor: '#ffffff'
+        }}
+      >
         {/* Header */}
-        <Box
-  sx={{
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    px: 2,
-    height: 64,
-    minWidth: COLLAPSED_WIDTH, // ensure it never shrinks smaller than the icon area
-    bgcolor: 'rgba(255,255,255,0.22)',
-    color: '#660dfc',
-  }}
->
-  {/* Logo always visible */}
-  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-    <Box
-      component="img"
-      src="/1x/table_ai_icon.png"
-      alt="Logo"
-      sx={{ height: 32, width: 'auto', mr: collapsed ? 0 : 1 }}
-    />
-    {!collapsed && (
-      <Typography variant="h6" sx={{ fontWeight: 600 }}>
-        TableAI
-      </Typography>
-    )}
-  </Box>
+        <Box sx={style.content.header}>
+          <Box sx={{ display: 'flex', alignItems: 'center' }}>
+            <Box
+              component="img"
+              src="/1x/table_ai_icon.png"
+              alt="Logo"
+              sx={style.logo(collapsed)}
+            />
+            {!collapsed && (
+              <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                TableAI
+              </Typography>
+            )}
+          </Box>
+          <Box
+            onClick={e => {
+              e.stopPropagation();
+              setCollapsed(c => !c);
+            }}
+            sx={style.toggleButton}
+          >
+            {collapsed ? <ChevronRightIcon /> : <ArrowBackIcon />}
+          </Box>
+        </Box>
 
-  {/* Arrow always visible */}
-  <Box
-    onClick={e => {
-      e.stopPropagation();
-      setCollapsed(c => !c);
-    }}
-    sx={{
-      width: 32,
-      height: 32,
-      borderRadius: '50%',
-      border: '1px solid rgba(255,255,255,0.2)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      cursor: 'pointer',
-      backgroundColor: '#fff',
-      ml: 1,
-      mr: 3
-    }}
-  >
-    {collapsed ? <ChevronRightIcon /> : <ArrowBackIcon />}
-  </Box>
-</Box>
         {/* Sidebar Menu */}
         <Sidebar
-          width={SIDEBAR_WIDTH}
-          collapsedWidth={COLLAPSED_WIDTH}
+          width={style.sidebar.width}
+          collapsedWidth={style.sidebar.collapsedWidth}
           collapsed={collapsed}
           rootStyles={{
-            [`.${sidebarClasses.container}`]: {
-              height: 'calc(100% - 64px)',
-              boxShadow: 'rgba(147, 93, 249, 0.48) 2px 2px 2px',
-              borderRadius: 8
-            }
+            [`.${sidebarClasses.container}`]: style.sidebar.container
           }}
         >
-            <Menu
-            menuItemStyles={{
-                root: {
-                px: 2,
-                py: 1
-                },
-                button: ({ active }) => ({
-                borderRadius: 8, // 👈 rounded corners
-                padding: '6px 12px', // 👈 vertical/horizontal padding
-                margin: '8px 8px', // 👈 spacing between items
-                backgroundColor: active ? 'rgba(134, 81, 214, 0)' : 'transparent',
-                '&:hover': {
-                    backgroundColor: 'rgba(134,81,214,0.09)'
-                },
-                transition: 'background-color 0.2s ease'
-                })
-            }}
-            >
-            <MenuSection
-              title={mainTitle}
-              items={main}
-              collapsed={collapsed}
-              location={location}
-            />
-            <MenuSection
-              title="MISC"
-              items={misc}
-              collapsed={collapsed}
-              location={location}
-            />
+          <Menu menuItemStyles={style.menuItem}>
+            {sections.map(([key, value]) => {
+              if (!Array.isArray(value)) return null;
+              const title = key === 'main' ? menuConfig.mainTitle : key.toUpperCase();
+              return (
+                <MenuSection
+                  key={key}
+                  title={title}
+                  items={value}
+                  collapsed={collapsed}
+                  location={location}
+                  style={style}
+                />
+              );
+            })}
           </Menu>
         </Sidebar>
       </Box>
 
       {/* Main Content */}
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          p: 3,
-          bgcolor: '#fffff',
-          overflowY: 'auto',
-          borderRadius: '5%',
-          border: '1px solid rgba(255, 255, 255, 0.04)',
-        }}
-      >
+      <Box component="main" sx={style.content.main}>
         <Outlet />
       </Box>
     </Box>
