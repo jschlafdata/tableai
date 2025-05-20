@@ -14,18 +14,45 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import sidebarStyles from '../config/sidebarStyles';
+import LocalIcon from './ui/LocalIcon'
 
 const NestedMenuItem = ({ item, collapsed, location, level = 0, style }) => {
   const active = item.path === location.pathname;
-  const iconSized = React.cloneElement(item.icon, {
-    sx: style.icon({ active })
-  });
+  
+  // Handle different icon types based on their properties
+  let iconElement;
+  
+  if (React.isValidElement(item.icon)) {
+    // Check if it's our LocalIcon component or has a src property (img tag)
+    if (item.icon.type === LocalIcon || (item.icon.props && item.icon.props.src)) {
+      // For our custom LocalIcon, pass the active prop
+      iconElement = React.cloneElement(item.icon, {
+        active,
+        style
+      });
+    } else {
+      // For Material-UI icons
+      iconElement = React.cloneElement(item.icon, {
+        sx: style.icon({ active })
+      });
+    }
+  } else {
+    // Fallback for no icon
+    iconElement = null;
+  }
 
   if (item.children?.length) {
     return (
       <SubMenu
-        label={!collapsed && item.name}
-        icon={iconSized}
+        label={!collapsed && (
+          <Typography sx={{
+            ...style.menuItem.text,
+            ...(level > 0 && style.menuItem.subMenuText)
+          }}>
+            {item.name}
+          </Typography>
+        )}
+        icon={iconElement}
         active={active}
         defaultOpen={active}
         renderExpandIcon={({ open }) =>
@@ -51,11 +78,31 @@ const NestedMenuItem = ({ item, collapsed, location, level = 0, style }) => {
   }
 
   return (
-    <MenuItem icon={iconSized} active={active} rootStyles={{ paddingLeft: level * 16 }}>
-      <Link to={item.path} style={{ textDecoration: 'none', color: 'inherit', display: 'flex', alignItems: 'center', width: '100%' }}>
-        {!collapsed && item.name}
-        {!collapsed && item.hasBadge && (
-          <Badge badgeContent={item.badgeContent} sx={style.badge(item)} />
+    <MenuItem icon={iconElement} active={active} rootStyles={{ paddingLeft: level * 16 }}>
+      <Link 
+        to={item.path} 
+        style={{ 
+          textDecoration: 'none', 
+          color: 'inherit', 
+          display: 'flex', 
+          alignItems: 'center', 
+          width: '100%' 
+        }}
+      >
+        {!collapsed && (
+          <>
+            <Typography sx={{
+              ...style.menuItem.text,
+              ...(active ? style.menuItem.activeText : {}),
+              ...(level > 0 && style.menuItem.subMenuText)
+            }}>
+              {item.name}
+            </Typography>
+            
+            {item.hasBadge && (
+              <Badge badgeContent={item.badgeContent} sx={style.badge(item)} />
+            )}
+          </>
         )}
       </Link>
     </MenuItem>
@@ -65,8 +112,15 @@ const NestedMenuItem = ({ item, collapsed, location, level = 0, style }) => {
 const MenuSection = ({ title, items, collapsed, location, style }) => (
   <>
     {title && !collapsed && (
-      <Box sx={{ px: 2, pt: 2 }}>
-        <Typography variant="caption" color="textSecondary">
+      <Box sx={{ ...style.sectionTitle }}>
+        <Typography variant="caption" sx={{ 
+          fontFamily: style.sectionTitle.fontFamily,
+          fontSize: style.sectionTitle.fontSize,
+          fontWeight: style.sectionTitle.fontWeight,
+          textTransform: style.sectionTitle.textTransform,
+          letterSpacing: style.sectionTitle.letterSpacing,
+          color: style.sectionTitle.color
+        }}>
           {title}
         </Typography>
       </Box>

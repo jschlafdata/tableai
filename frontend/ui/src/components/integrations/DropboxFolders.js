@@ -5,9 +5,9 @@ import Stack from '@mui/material/Stack'
 import Typography from '@mui/material/Typography'
 import styles from './DropboxCardListStyles'
 
-import { useBackgroundTask } from '../../hooks/api/tableai/useBackgroundTask'
-import { useStage0Summary } from '../../hooks/api/tableai/useSummaries'
-import { useDropboxData } from '../../hooks/api/dropbox/useDropboxData'
+import { useBackgroundTask } from './api/useBackgroundTask'
+import { useStage0Summary } from './api/useSummaries'
+import { useDropboxData } from './api/useDropboxData'
 
 import DropboxBreadcrumbs from './DropboxBreadcrumbs'
 import DropboxHeaderControls from './DropboxHeaderControls'

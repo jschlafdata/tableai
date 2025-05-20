@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import Button from '@mui/material/Button'
-import { runTask } from '../../hooks/api/tableai/taskRunner'
+import { runTask } from './api/taskRunner'
 import CONSTANTS from '../../constants'
 
 const ProcessButton = ({

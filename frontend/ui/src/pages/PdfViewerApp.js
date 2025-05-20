@@ -3,15 +3,13 @@ import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { Divider, Box } from '@mui/material';
 import { Document, Page, pdfjs } from 'react-pdf';
-import FileMetadataDisplay from '../components/pdf/FileMetadataDisplay';
-import PdfNavigation from '../components/pdf/PdfNavigation';
-import FilterControls from '../components/pdf/FilterControls';
-import LoadingState from '../components/pdf/LoadingState';
-import PdfProcessingResults from '../components/pdf/PdfProcessingResults';
+import PdfNavigation from '../components/pdf/services/PdfNavigation';
+import FilterControls from '../components/pdf/PdfPageFilters/FilterControls';
+import PdfProcessingResults from '../components/pdf/PdfProcessing/PdfProcessingResults';
 import TableHeaderBounds from '../components/pdf/TableHeaderBounds/TableHeaderBounds';
-import { PdfDataProvider } from '../context/PdfDataContext';
-import { usePdfDataContext } from '../context/PdfDataContext';
-import { Backdrop, CircularProgress } from '@mui/material';
+import { PdfDataProvider } from '../components/pdf/services/PdfDataContext';
+import { usePdfDataContext } from '../components/pdf/services/PdfDataContext';
+import { CircularProgress } from '@mui/material';
 
 import '../components/pdf/css/pdf-styles.css';
 

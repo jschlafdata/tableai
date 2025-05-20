@@ -13,7 +13,6 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import { getColorForTable } from '../utils/getColorForTable';
 
 const TableHeaderToggles = ({
   tableHeaders,
@@ -51,35 +50,6 @@ const TableHeaderToggles = ({
     const pageItems = tableHeaders.results.pages[pageIndex] || [];
     return pageItems.filter(item => item.table_index === tableIndex).length;
   };
-
-//   // Example color map function — or place it in a helper
-//   const getColorForTable = (() => {
-//     const cache = {};
-//     return (tableIndex) => {
-//       const label = `Table ${tableIndex}`;
-//       if (cache[label]) return cache[label];
-//       const tableColors = [
-//         'hsl(210, 80%, 60%)',
-//         'hsl(180, 70%, 50%)',
-//         'hsl(150, 65%, 50%)',
-//         'hsl(270, 60%, 60%)',
-//         'hsl(240, 70%, 65%)',
-//         'hsl(330, 70%, 60%)',
-//         'hsl(30, 80%, 55%)'
-//       ];
-//       const colorIndex = (tableIndex - 1) % tableColors.length;
-//       const color = tableColors[colorIndex];
-//       cache[label] = color;
-//       return color;
-//     };
-//   })();
-
-  // Precompute color map for each table label
-//   const colorMap = {};
-//   Object.keys(tableToggles).forEach(tableLabel => {
-//     const tableIndex = parseInt(tableLabel.replace('Table ', ''));
-//     colorMap[tableLabel] = getColorForTable(tableIndex);
-//   });
 
   return (
     <Paper

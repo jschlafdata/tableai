@@ -341,3 +341,4 @@ def get_extraction(
         return flat_list
     else:
         return {}
+

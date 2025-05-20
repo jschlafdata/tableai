@@ -1,9 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Box, Typography, Snackbar, Alert } from '@mui/material';
-import ReactDOM from 'react-dom';
-
-import { usePdfDataContext } from '../../../context/PdfDataContext';
-
+import { usePdfDataContext } from '../services/PdfDataContext';
 import TableHeaderActions from './TableHeaderActions';
 import TableHeaderToggles from './TableHeaderToggles';
 import BoundingBoxesPortal from './BoundingBoxesPortal';
