@@ -81,12 +81,19 @@ class DirectoryFileNode(TimeModel):
         # Fallback to local path if no stage path is found
         return str(self.local_path)
 
-    def store_metadata(self, stage_number, data: Dict):
+    def store_metadata(self, stage_number, data: Dict, db=None):
         stage = f"stage{stage_number}"
         self.extraction_metadata[stage] = {
             **self.stage_paths.get(stage_number, {}), 
             **data
         }
+        if not self.corrupted:
+            self.completed_stages.append(stage_number)
+            self.completed_stages = list(set(self.completed_stages))
+
+        if db:
+            # Persist to DB
+            db.run_op(FileNodeRecord, operation="merge", data=self.to_record())
 
     def load_pdf(self):
         """

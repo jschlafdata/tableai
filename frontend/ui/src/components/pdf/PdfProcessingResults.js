@@ -1,5 +1,4 @@
-// Updated PdfProcessingResults.jsx with Vision Inference and preserving custom color functions
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Button,
   CircularProgress,
@@ -14,7 +13,7 @@ import {
   Paper,
   Collapse,
   IconButton,
-  Tooltip
+  Tooltip,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import CancelIcon from '@mui/icons-material/Cancel';
@@ -26,140 +25,146 @@ import ReactDOM from 'react-dom';
 import BoundingBoxes from './BoundingBoxes';
 import { getResultsCount } from './utils/pdfUtils';
 
+import { usePdfDataContext } from '../../context/PdfDataContext';
+import FileMetadataDisplay from './FileMetadataDisplay';
+
+// For debugging
+const DEBUG = false;
+
 const PdfProcessingResults = ({
   fileId,
-  stage,
+  stage, // For backward compatibility
+  selectedStage, // New prop to determine which stage results to display
   pageDimensions,
   currentPage,
   pdfContainerRef,
   scale = 1.5,
-  metadata = {}
+  metadata = {},
 }) => {
-  const [loading, setLoading] = useState(false);
-  const [visionLoading, setVisionLoading] = useState(false);
-  const [results, setResults] = useState([]);
-  const [error, setError] = useState(null);
+  // Use selectedStage if provided, otherwise fall back to stage for backward compatibility
+  const effectiveStage = selectedStage !== undefined ? selectedStage : stage;
+  
+  const {
+    processingResults,
+    processingLoading,
+    visionLoading,
+    error,
+    handleProcessPdf,
+    handleRunVisionInference,
+    clearAllResults,
+    reloadMetadata,
+  } = usePdfDataContext();
+
+  // Local state
   const [showResults, setShowResults] = useState(true);
   const [queryToggles, setQueryToggles] = useState({});
   const [showQueryControls, setShowQueryControls] = useState(true);
   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
+  const [localError, setLocalError] = useState(null);
 
-  // Check if file has classification
-  const hasClassification = !!metadata?.classification;
-
+  // Clean up the container when component unmounts
   useEffect(() => {
-    // Log page dimensions to debug potential issues
-    console.log('Page dimensions:', pageDimensions);
-    console.log('PDF Container Ref:', pdfContainerRef?.current);
-  }, [pageDimensions, pdfContainerRef]);
+    return () => {
+      const boxContainer = document.getElementById('bounding-box-container');
+      if (boxContainer && boxContainer.parentNode) {
+        boxContainer.parentNode.removeChild(boxContainer);
+      }
+    };
+  }, []);
 
-  // Log metadata for debugging
-    useEffect(() => {
-    console.log('Current metadata:', metadata);
-    console.log('Has classification:', hasClassification, metadata?.classification);
-  }, [metadata, hasClassification]);
+  // On error from hook, show snackbar
+  useEffect(() => {
+    if (error) setLocalError(error);
+  }, [error]);
 
-  // Make sure we re-render when query toggles change
+  // Get the current stage results
+  const getCurrentStageResults = () => {
+    if (!processingResults) return [];
+    
+    if (DEBUG) {
+      console.log("Processing Results:", processingResults);
+      console.log("Effective Stage:", effectiveStage);
+    }
+    
+    // If processingResults is the new dictionary format
+    if (processingResults[`stage${effectiveStage}`]) {
+      return processingResults[`stage${effectiveStage}`] || [];
+    }
+    
+    // Fallback for backward compatibility
+    return Array.isArray(processingResults) ? processingResults : [];
+  };
+
+  const currentStageResults = getCurrentStageResults();
+  
+  if (DEBUG) {
+    console.log("Current Stage Results:", currentStageResults);
+  }
+
+  // Update toggles/results on new process results or stage change
+  useEffect(() => {
+    if (!currentStageResults || currentStageResults.length === 0) return;
+    
+    if (DEBUG) {
+      console.log("Setting up toggles for results:", currentStageResults);
+    }
+    
+    const initialToggles = {};
+    currentStageResults.forEach((result) => {
+      initialToggles[result.query_label] = true;
+    });
+    setQueryToggles(initialToggles);
+    setBoundingBoxesVisible(true);
+    setShowResults(true);
+  }, [processingResults, effectiveStage]);
+
+  // Force bounding box rerender on toggle change
   useEffect(() => {
     if (showResults && Object.keys(queryToggles).length > 0) {
-      console.log('Query toggles changed, updating bounding boxes');
-      // Force a refresh of bounding boxes when toggles change
       setBoundingBoxesVisible(false);
       const timer = setTimeout(() => setBoundingBoxesVisible(true), 50);
       return () => clearTimeout(timer);
     }
   }, [queryToggles, showResults]);
 
-  const processPdf = async () => {
+  // Check if file has classification
+  const hasClassification = !!metadata?.classification;
+
+  const onProcessPdf = async () => {
     if (!fileId) {
-      setError("No file selected");
+      setLocalError("No file selected");
       return;
     }
-
-    setLoading(true);
-    setResults([]);
-    setError(null);
-    setQueryToggles({});
+    clearAllResults();
     setBoundingBoxesVisible(false);
-
     try {
-      console.log('Processing PDF with file_id:', fileId, 'stage:', stage);
-      const response = await fetch(`http://localhost:8000/tableai/extract/doc_query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId, stage: stage }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Received query results:', data);
-      setResults(data);
-      setShowResults(true);
-
-      const initialToggles = {};
-      data.forEach(result => {
-        initialToggles[result.query_label] = true;
-      });
-      setQueryToggles(initialToggles);
-      setBoundingBoxesVisible(true);
-
+      // No longer passing stage parameter
+      await handleProcessPdf({ fileId });
+      await reloadMetadata(); 
     } catch (err) {
-      console.error('Error processing PDF:', err);
-      setError(`Failed to process PDF: ${err.message}`);
-    } finally {
-      setLoading(false);
+      setLocalError(err.message);
     }
   };
   
-  // Run vision inference
-  const runVisionInference = async () => {
+  const onRunVisionInference = async () => {
     if (!fileId || !hasClassification) {
-      setError("Cannot run vision inference - file must have a classification");
+      setLocalError("Cannot run vision inference - file must have a classification");
       return;
     }
-
-    setVisionLoading(true);
-    setError(null);
-
     try {
-      console.log('Running vision inference for file_id:', fileId, 'stage:', stage, 'classification:', metadata.classification);
-      
-      const response = await fetch(`http://localhost:8000/tableai/extract/vision/structure`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          file_id: fileId, 
-          stage: stage,
-          classification_label: metadata.classification 
-        }),
+      await handleRunVisionInference({
+        fileId,
+        // No longer passing stage parameter
+        classificationLabel: metadata.classification,
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      console.log('Vision inference results:', data);
-      
-      // Show success message
-      setError({ message: "Vision inference completed successfully!", severity: "success" });
-      
-      // Process results if needed - this depends on how you want to handle the results
-      // If they are in the same format as the document query results, you could potentially
-      // add them to the existing results or replace them
-
+      setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
+      await reloadMetadata(); 
     } catch (err) {
-      console.error('Error running vision inference:', err);
-      setError(`Failed to run vision inference: ${err.message}`);
-    } finally {
-      setVisionLoading(false);
+      setLocalError(err.message);
     }
   };
 
-  // Custom color generation function
+  // --- Custom color for query label ---
   const getColorForLabel = (() => {
     const cache = {};
     return (label) => {
@@ -168,44 +173,34 @@ const PdfProcessingResults = ({
       for (let i = 0; i < label.length; i++) {
         hash = label.charCodeAt(i) + ((hash << 5) - hash);
       }
-      // Wide hue spread
       const hue = Math.abs(hash) % 360;
-      // Vary saturation and lightness for even more separation
-      const saturation = 60 + (Math.abs(hash) % 30); // 60% - 89%
-      const lightness = 45 + (Math.abs(hash * 7) % 30); // 45% - 74%
+      const saturation = 60 + (Math.abs(hash) % 30);
+      const lightness = 45 + (Math.abs(hash * 7) % 30);
       const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
       cache[label] = color;
       return color;
     };
   })();
-  
-  // In your main component render:
+
+  // Map for label -> color
   const colorMap = {};
-  results.forEach(r => {
+  (currentStageResults || []).forEach((r) => {
     colorMap[r.query_label] = getColorForLabel(r.query_label);
   });
 
+  // --- Toggle logic ---
   const toggleResults = () => {
-    setShowResults(!showResults);
-    // Update bounding box visibility when toggling results
-    setBoundingBoxesVisible(!showResults);
+    setShowResults((prev) => !prev);
+    setBoundingBoxesVisible((prev) => !prev);
   };
 
   const toggleQueryLabel = (queryLabel) => {
-    console.log(`Toggling query label ${queryLabel}`, !queryToggles[queryLabel]);
-    setQueryToggles(prev => {
-      const newToggles = {
-        ...prev,
-        [queryLabel]: !prev[queryLabel]
-      };
-      console.log('New query toggles:', newToggles);
-      return newToggles;
-    });
-    
-    // Force re-render of bounding boxes
-    setBoundingBoxesVisible(prev => {
+    setQueryToggles((prev) => ({
+      ...prev,
+      [queryLabel]: !prev[queryLabel],
+    }));
+    setBoundingBoxesVisible((prev) => {
       if (prev) {
-        // Quick toggle to force re-render
         setTimeout(() => setBoundingBoxesVisible(true), 10);
         return false;
       }
@@ -215,68 +210,64 @@ const PdfProcessingResults = ({
 
   const toggleAllQueryLabels = (value) => {
     const updated = {};
-    Object.keys(queryToggles).forEach(key => {
+    Object.keys(queryToggles).forEach((key) => {
       updated[key] = value;
     });
     setQueryToggles(updated);
   };
 
-  const getFilteredBoxesData = () => {
-    if (!results || results.length === 0 || !showResults) return null;
-    
-    // Log current page for debugging
-    console.log('Getting boxes for current page:', currentPage);
-    console.log('Query toggles:', queryToggles);
-    
-    try {
-      // This is a direct implementation using your response structure
-      const formattedData = {};
-      
-      results.forEach(result => {
-        const queryLabel = result.query_label;
-        
-        // Skip this query type if it's toggled off
-        if (queryToggles[queryLabel] === false) {
-          console.log(`Query ${queryLabel} is toggled off, skipping`);
-          return;
-        }
-        
-        const pages = result.results?.pages;
-        
-        if (!pages) {
-          console.log(`No pages data found for ${queryLabel}`);
-          return;
-        }
-        
-        // Convert to zero-based indexing (your currentPage is 1-based)
-        const pageIndex = String(currentPage - 1);
-        
-        console.log(`Looking for page ${pageIndex} in`, Object.keys(pages));
-        
-        const pageBoxes = pages[pageIndex];
-        if (!pageBoxes || !pageBoxes.length) {
-          console.log(`No boxes found for page ${pageIndex} in ${queryLabel}`);
-          return;
-        }
-        
-        console.log(`Found ${pageBoxes.length} boxes for ${queryLabel} on page ${pageIndex}`);
-        
-        formattedData[queryLabel] = pageBoxes.map(box => {
-          // Check if we have bbox or use x0,y0,x1,y1
-          const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
-          
+  // --- Get PDF dimensions from metadata in the results ---
+  const getPdfDimensions = () => {
+    if (currentStageResults && currentStageResults.length > 0) {
+      // Check each result for pdf_metadata or item metadata
+      for (const result of currentStageResults) {
+        // First, check if there's a top-level pdf_metadata field
+        if (result.pdf_metadata && result.pdf_metadata[currentPage - 1]) {
           return {
-            ...box,
-            coords,
-            text: box.value || '',
-            queryLabel
+            width: result.pdf_metadata[currentPage - 1].width,
+            height: result.pdf_metadata[currentPage - 1].height
           };
+        }
+        
+        // Then, check page items for metadata
+        const pageIndex = String(currentPage - 1);
+        const pages = result.results?.pages;
+        if (pages && pages[pageIndex] && pages[pageIndex].length > 0) {
+          // Check if any box has metadata
+          for (const box of pages[pageIndex]) {
+            if (box.meta && box.meta.width && box.meta.height) {
+              return {
+                width: box.meta.width,
+                height: box.meta.height
+              };
+            }
+          }
+        }
+      }
+    }
+    
+    // Fallback to provided dimensions
+    return pageDimensions;
+  };
+
+  // --- Filtered boxes data for bounding box display ---
+  const getFilteredBoxesData = () => {
+    if (!currentStageResults || currentStageResults.length === 0 || !showResults) return null;
+    try {
+      const formattedData = {};
+      currentStageResults.forEach((result) => {
+        const queryLabel = result.query_label;
+        if (queryToggles[queryLabel] === false) return;
+        const pages = result.results?.pages;
+        if (!pages) return;
+        const pageIndex = String(currentPage - 1);
+        const pageBoxes = pages[pageIndex];
+        if (!pageBoxes || !pageBoxes.length) return;
+        formattedData[queryLabel] = pageBoxes.map((box) => {
+          const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
+          return { ...box, coords, text: box.value || '', queryLabel };
         });
       });
-      
-      console.log('Filtered boxes data:', formattedData);
-      
-      // Return null if no boxes found
       return Object.keys(formattedData).length > 0 ? formattedData : null;
     } catch (error) {
       console.error('Error formatting boxes data:', error);
@@ -284,63 +275,39 @@ const PdfProcessingResults = ({
     }
   };
 
+  // --- Results count helper ---
   const getQueryLabelResultsCount = (label) => {
-    const queryResult = results.find(r => r.query_label === label);
+    const queryResult = (currentStageResults || []).find((r) => r.query_label === label);
     if (!queryResult || !queryResult.results?.pages) return 0;
-    
-    // Adjust for zero-based indexing in the results
     const pageIndex = String(currentPage - 1);
     return (queryResult.results.pages[pageIndex] || []).length;
   };
 
-  // Fixed transformCoord function for PDFs
+  // --- Transform bounding box coordinates ---
   const transformCoordWithContainer = (coords, color) => {
-    // Make sure we're working with the correct page dimensions
     if (!pageDimensions.width || !pageDimensions.height) {
-      console.warn('Page dimensions not available:', pageDimensions);
       return { x: 0, y: 0, width: 0, height: 0, color };
     }
     
-    // Simple coordinate transformation
-    // [x0, y0, x1, y1] to CSS positioning
-    let [x0, y0, x1, y1] = coords;
-    
-    // Convert to numbers if they're strings
-    x0 = parseFloat(x0);
-    y0 = parseFloat(y0);
-    x1 = parseFloat(x1);
-    y1 = parseFloat(y1);
-    
-    // Fix any invalid coordinates (ensure x1 > x0 and y1 > y0)
+    let [x0, y0, x1, y1] = coords.map(parseFloat);
     if (x1 < x0) [x0, x1] = [x1, x0];
     if (y1 < y0) [y0, y1] = [y1, y0];
     
-    console.log('Original coords:', [x0, y0, x1, y1]);
-    console.log('Page dimensions:', pageDimensions);
-    console.log('Scale:', scale);
-    
-    // Get the actual rendered dimensions of the PDF
     const renderedWidth = pageDimensions.width;
     const renderedHeight = pageDimensions.height;
     
-    // Get the PDF's intrinsic dimensions (from metadata)
-    // Find these in the PDF metadata or extract from API response
-    const pdfWidth = 612.0; // From your API response metadata
-    const pdfHeight = 792.0; // From your API response metadata
+    // Get PDF dimensions dynamically
+    const pdfDimensions = getPdfDimensions();
+    const pdfWidth = pdfDimensions.width || 612.0;
+    const pdfHeight = pdfDimensions.height || 792.0;
     
-    // Calculate the ratio between rendered and original PDF dimensions
     const widthRatio = renderedWidth / pdfWidth;
     const heightRatio = renderedHeight / pdfHeight;
     
-    // Apply coordinate transformation with correct scaling
-    // PDF coordinates start from bottom-left, CSS starts from top-left
     const x = x0 * widthRatio;
-    const y = y0 * heightRatio; // No flipping needed based on your coordinates
+    const y = y0 * heightRatio;
     const width = (x1 - x0) * widthRatio;
     const height = (y1 - y0) * heightRatio;
-    
-    const transformedCoords = { x, y, width, height };
-    console.log('Transformed coords:', transformedCoords);
     
     return {
       position: 'absolute',
@@ -349,37 +316,36 @@ const PdfProcessingResults = ({
       width: `${width}px`,
       height: `${height}px`,
       border: `2px solid ${color}`,
-      backgroundColor: color.replace('1)', '0.3)'),
+      backgroundColor: color.replace('1)', '0.3)').replace(')', ', 0.3)'),
       zIndex: 2000,
       pointerEvents: 'auto',
-      opacity: 1
+      opacity: 1,
     };
   };
 
   const boxesData = getFilteredBoxesData();
   const resultsCount = boxesData ? getResultsCount(boxesData) : 0;
-  
-  const canRenderBoxes = pdfContainerRef?.current && 
-                        pageDimensions.width > 0 && 
-                        pageDimensions.height > 0 && 
-                        boundingBoxesVisible &&
-                        boxesData;
+  const canRenderBoxes =
+    pdfContainerRef?.current &&
+    pageDimensions.width > 0 &&
+    pageDimensions.height > 0 &&
+    boundingBoxesVisible &&
+    boxesData;
 
-  // Render bounding boxes directly into the PDF container using a portal
+  // --- Render bounding boxes using a portal ---
   const renderBoundingBoxesPortal = () => {
     if (!canRenderBoxes) {
-      console.log('Cannot render boxes yet:', { 
-        containerExists: !!pdfContainerRef?.current,
-        pageDimensions,
-        boundingBoxesVisible,
-        hasBoxesData: !!boxesData
-      });
+      if (DEBUG) {
+        console.log("Cannot render boxes:", {
+          containerExists: !!pdfContainerRef?.current,
+          dimensions: pageDimensions,
+          boundingBoxesVisible,
+          hasBoxesData: !!boxesData
+        });
+      }
       return null;
     }
     
-    console.log('Rendering bounding boxes portal with dimensions:', pageDimensions);
-    
-    // Create a dedicated container for the bounding boxes if it doesn't exist
     let boxContainer = document.getElementById('bounding-box-container');
     if (!boxContainer) {
       boxContainer = document.createElement('div');
@@ -390,16 +356,21 @@ const PdfProcessingResults = ({
       boxContainer.style.width = '100%';
       boxContainer.style.height = '100%';
       boxContainer.style.pointerEvents = 'none';
-      boxContainer.style.zIndex = '1000'; // Ensure it's on top
+      boxContainer.style.zIndex = '1000';
+      boxContainer.style.border = 'none';
+      boxContainer.style.background = 'transparent';
+      boxContainer.style.boxShadow = 'none';
+      boxContainer.style.overflow = 'hidden';
       
-      // Add it to the PDF container
+      // Ensure parent has position: relative
+      pdfContainerRef.current.style.position = 'relative';
       pdfContainerRef.current.appendChild(boxContainer);
     }
     
     return ReactDOM.createPortal(
       <BoundingBoxes
         boxesData={boxesData}
-        transformCoord={(coords, color) => transformCoordWithContainer(coords, color)}
+        transformCoord={transformCoordWithContainer}
         colorMap={colorMap}
         showTooltips={true}
       />,
@@ -407,18 +378,27 @@ const PdfProcessingResults = ({
     );
   };
 
+  // Check if there are results for the current stage
+  const hasCurrentStageResults = currentStageResults && currentStageResults.length > 0;
+
   return (
     <>
       {/* Process Controls */}
       <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+        <FileMetadataDisplay metadata={metadata} />
+        {DEBUG && (
+          <Typography variant="caption" sx={{ bgcolor: 'yellow' }}>
+            Stage: {effectiveStage}, Results: {hasCurrentStageResults ? 'Yes' : 'No'}
+          </Typography>
+        )}
         <Button
           variant="contained"
           color="primary"
-          onClick={processPdf}
-          disabled={loading || !fileId}
-          startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+          onClick={onProcessPdf}
+          disabled={processingLoading || !fileId}
+          startIcon={processingLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
         >
-          {loading ? "Processing..." : "Process PDF"}
+          {processingLoading ? "Processing..." : "Process PDF"}
         </Button>
 
         <Tooltip title={!hasClassification ? "File must have a classification to run vision inference" : ""}>
@@ -426,7 +406,7 @@ const PdfProcessingResults = ({
             <Button
               variant="contained"
               color="secondary"
-              onClick={runVisionInference}
+              onClick={onRunVisionInference}
               disabled={visionLoading || !fileId || !hasClassification}
               startIcon={visionLoading ? <CircularProgress size={20} color="inherit" /> : <VisibilityIcon />}
             >
@@ -435,7 +415,7 @@ const PdfProcessingResults = ({
           </span>
         </Tooltip>
 
-        {results.length > 0 && (
+        {hasCurrentStageResults && (
           <Button
             variant="outlined"
             color="primary"
@@ -446,52 +426,62 @@ const PdfProcessingResults = ({
           </Button>
         )}
 
-        {results.length > 0 && (
+        {hasCurrentStageResults && (
           <Typography variant="body2" color="textSecondary">
-            Found {resultsCount} results on page {currentPage}
+            Found {resultsCount} results on page {currentPage} (Stage {effectiveStage})
           </Typography>
         )}
       </Box>
 
       {/* Query Filters */}
-      {results.length > 0 && (
-        <Paper elevation={1} sx={{
-          p: 2, mb: 2,
-          bgcolor: '#f5f5f5',
-          border: '1px solid #e0e0e0',
-          borderRadius: '4px'
-        }}>
+      {hasCurrentStageResults && (
+        <Paper
+          elevation={1}
+          sx={{
+            p: 2,
+            mb: 2,
+            bgcolor: '#f5f5f5',
+            border: '1px solid #e0e0e0',
+            borderRadius: '4px',
+          }}
+        >
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
             <Typography variant="subtitle1" fontWeight="bold">
               Query Types
             </Typography>
             <Box>
-              <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>Show All</Button>
-              <Button size="small" onClick={() => toggleAllQueryLabels(false)}>Hide All</Button>
-              <IconButton size="small" onClick={() => setShowQueryControls(prev => !prev)} sx={{ ml: 1 }}>
+              <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>
+                Show All
+              </Button>
+              <Button size="small" onClick={() => toggleAllQueryLabels(false)}>
+                Hide All
+              </Button>
+              <IconButton size="small" onClick={() => setShowQueryControls((prev) => !prev)} sx={{ ml: 1 }}>
                 {showQueryControls ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </IconButton>
             </Box>
           </Box>
-
           <Collapse in={showQueryControls}>
             <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
-              {results.map(result => {
+              {currentStageResults.map((result) => {
                 const label = result.query_label;
                 const description = result?.description || '';
                 const count = getQueryLabelResultsCount(label);
                 const color = getColorForLabel(label);
 
                 return (
-                  <Box key={label} sx={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    bgcolor: 'white',
-                    p: 1,
-                    borderRadius: '4px',
-                    border: '1px solid #e0e0e0',
-                    minWidth: '200px'
-                  }}>
+                  <Box
+                    key={label}
+                    sx={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      bgcolor: 'white',
+                      p: 1,
+                      borderRadius: '4px',
+                      border: '1px solid #e0e0e0',
+                      minWidth: '200px',
+                    }}
+                  >
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <FormControlLabel
                         control={
@@ -501,16 +491,20 @@ const PdfProcessingResults = ({
                             size="small"
                           />
                         }
-                        label={<Typography variant="body2" fontWeight="bold">{label}</Typography>}
+                        label={
+                          <Typography variant="body2" fontWeight="bold">
+                            {label}
+                          </Typography>
+                        }
                       />
-                    <Chip
+                      <Chip
                         label={count}
                         size="small"
                         sx={{
-                            bgcolor: getColorForLabel(label) + '20', // 20 = 12% opacity in hex
-                            border: `1px solid ${getColorForLabel(label)}`
+                          bgcolor: getColorForLabel(label) + '20',
+                          border: `1px solid ${getColorForLabel(label)}`,
                         }}
-                        />
+                      />
                     </Box>
                     {description && (
                       <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary' }}>
@@ -530,16 +524,13 @@ const PdfProcessingResults = ({
 
       {/* Error/Success Snackbar */}
       <Snackbar
-        open={!!error}
+        open={!!localError}
         autoHideDuration={6000}
-        onClose={() => setError(null)}
+        onClose={() => setLocalError(null)}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
       >
-        <Alert 
-          severity={error?.severity || "error"} 
-          onClose={() => setError(null)}
-        >
-          {error?.message || error}
+        <Alert severity={localError?.severity || "error"} onClose={() => setLocalError(null)}>
+          {localError?.message || localError}
         </Alert>
       </Snackbar>
     </>
@@ -548,8 +539,7 @@ const PdfProcessingResults = ({
 
 export default PdfProcessingResults;
 
-// // Updated PdfProcessingResults.jsx with Fixed Bounding Box Rendering
-// import React, { useState, useEffect, useRef } from 'react';
+// import React, { useState, useEffect } from 'react';
 // import {
 //   Button,
 //   CircularProgress,
@@ -563,89 +553,139 @@ export default PdfProcessingResults;
 //   Chip,
 //   Paper,
 //   Collapse,
-//   IconButton
+//   IconButton,
+//   Tooltip,
 // } from '@mui/material';
 // import SearchIcon from '@mui/icons-material/Search';
 // import CancelIcon from '@mui/icons-material/Cancel';
 // import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 // import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+// import VisibilityIcon from '@mui/icons-material/Visibility';
 // import ReactDOM from 'react-dom';
 
 // import BoundingBoxes from './BoundingBoxes';
+// import { getResultsCount } from './utils/pdfUtils';
 
-// import {
-//   transformCoord,
-//   getColorMap,
-//   getFormattedBoxesData,
-//   getResultsCount
-// } from './utils/pdfUtils';
+// import { usePdfDataContext } from '../../context/PdfDataContext';
+// import FileMetadataDisplay from './FileMetadataDisplay';
 
 // const PdfProcessingResults = ({
 //   fileId,
-//   stage,
+//   selectedStage, // New prop to determine which stage results to display
 //   pageDimensions,
 //   currentPage,
 //   pdfContainerRef,
-//   scale = 1.5
+//   scale = 1.5,
+//   metadata = {},
 // }) => {
-//   const [loading, setLoading] = useState(false);
-//   const [results, setResults] = useState([]);
-//   const [error, setError] = useState(null);
+//   const {
+//     processingResults,
+//     processingLoading,
+//     visionLoading,
+//     error,
+//     handleProcessPdf,
+//     handleRunVisionInference,
+//     clearAllResults,
+//     reloadMetadata,
+//   } = usePdfDataContext();
+
+//   // Local state
 //   const [showResults, setShowResults] = useState(true);
 //   const [queryToggles, setQueryToggles] = useState({});
 //   const [showQueryControls, setShowQueryControls] = useState(true);
 //   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
+//   const [localError, setLocalError] = useState(null);
 
+//   // Clean up the container when component unmounts
 //   useEffect(() => {
-//     // Log page dimensions to debug potential issues
-//     console.log('Page dimensions:', pageDimensions);
-//     console.log('PDF Container Ref:', pdfContainerRef?.current);
-//   }, [pageDimensions, pdfContainerRef]);
+//     return () => {
+//       const boxContainer = document.getElementById('bounding-box-container');
+//       if (boxContainer && boxContainer.parentNode) {
+//         boxContainer.parentNode.removeChild(boxContainer);
+//       }
+//     };
+//   }, []);
 
-//   const processPdf = async () => {
+//   // On error from hook, show snackbar
+//   useEffect(() => {
+//     if (error) setLocalError(error);
+//   }, [error]);
+
+//   // Get the current stage results
+//   const getCurrentStageResults = () => {
+//     if (!processingResults) return [];
+    
+//     // If processingResults is the new dictionary format
+//     if (processingResults[`stage${selectedStage}`]) {
+//       return processingResults[`stage${selectedStage}`] || [];
+//     }
+    
+//     // Fallback for backward compatibility
+//     return Array.isArray(processingResults) ? processingResults : [];
+//   };
+
+//   const currentStageResults = getCurrentStageResults();
+
+//   // Update toggles/results on new process results or stage change
+//   useEffect(() => {
+//     if (!currentStageResults || currentStageResults.length === 0) return;
+    
+//     const initialToggles = {};
+//     currentStageResults.forEach((result) => {
+//       initialToggles[result.query_label] = true;
+//     });
+//     setQueryToggles(initialToggles);
+//     setBoundingBoxesVisible(true);
+//     setShowResults(true);
+//   }, [processingResults, selectedStage]);
+
+//   // Force bounding box rerender on toggle change
+//   useEffect(() => {
+//     if (showResults && Object.keys(queryToggles).length > 0) {
+//       setBoundingBoxesVisible(false);
+//       const timer = setTimeout(() => setBoundingBoxesVisible(true), 50);
+//       return () => clearTimeout(timer);
+//     }
+//   }, [queryToggles, showResults]);
+
+//   // Check if file has classification
+//   const hasClassification = !!metadata?.classification;
+
+//   const onProcessPdf = async () => {
 //     if (!fileId) {
-//       setError("No file selected");
+//       setLocalError("No file selected");
 //       return;
 //     }
-
-//     setLoading(true);
-//     setResults([]);
-//     setError(null);
-//     setQueryToggles({});
+//     clearAllResults();
 //     setBoundingBoxesVisible(false);
-
 //     try {
-//       console.log('Processing PDF with file_id:', fileId, 'stage:', stage);
-//       const response = await fetch(`http://localhost:8000/tableai/extract/doc_query`, {
-//         method: 'POST',
-//         headers: { 'Content-Type': 'application/json' },
-//         body: JSON.stringify({ file_id: fileId, stage: stage }),
-//       });
-
-//       if (!response.ok) {
-//         throw new Error(`HTTP error! Status: ${response.status}`);
-//       }
-
-//       const data = await response.json();
-//       console.log('Received query results:', data);
-//       setResults(data);
-//       setShowResults(true);
-
-//       const initialToggles = {};
-//       data.forEach(result => {
-//         initialToggles[result.query_label] = true;
-//       });
-//       setQueryToggles(initialToggles);
-//       setBoundingBoxesVisible(true);
-
+//       // No longer passing stage parameter
+//       await handleProcessPdf({ fileId });
+//       await reloadMetadata(); 
 //     } catch (err) {
-//       console.error('Error processing PDF:', err);
-//       setError(`Failed to process PDF: ${err.message}`);
-//     } finally {
-//       setLoading(false);
+//       setLocalError(err.message);
+//     }
+//   };
+  
+//   const onRunVisionInference = async () => {
+//     if (!fileId || !hasClassification) {
+//       setLocalError("Cannot run vision inference - file must have a classification");
+//       return;
+//     }
+//     try {
+//       await handleRunVisionInference({
+//         fileId,
+//         // No longer passing stage parameter
+//         classificationLabel: metadata.classification,
+//       });
+//       setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
+//       await reloadMetadata(); 
+//     } catch (err) {
+//       setLocalError(err.message);
 //     }
 //   };
 
+//   // --- Custom color for query label ---
 //   const getColorForLabel = (() => {
 //     const cache = {};
 //     return (label) => {
@@ -654,97 +694,101 @@ export default PdfProcessingResults;
 //       for (let i = 0; i < label.length; i++) {
 //         hash = label.charCodeAt(i) + ((hash << 5) - hash);
 //       }
-//       // Wide hue spread
 //       const hue = Math.abs(hash) % 360;
-//       // Vary saturation and lightness for even more separation
-//       const saturation = 60 + (Math.abs(hash) % 30); // 60% - 89%
-//       const lightness = 45 + (Math.abs(hash * 7) % 30); // 45% - 74%
+//       const saturation = 60 + (Math.abs(hash) % 30);
+//       const lightness = 45 + (Math.abs(hash * 7) % 30);
 //       const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
 //       cache[label] = color;
 //       return color;
 //     };
 //   })();
-  
-//   // In your main component render:
+
+//   // Map for label -> color
 //   const colorMap = {};
-//   results.forEach(r => {
+//   (currentStageResults || []).forEach((r) => {
 //     colorMap[r.query_label] = getColorForLabel(r.query_label);
 //   });
 
+//   // --- Toggle logic ---
 //   const toggleResults = () => {
-//     setShowResults(!showResults);
-//     // Update bounding box visibility when toggling results
-//     setBoundingBoxesVisible(!showResults);
+//     setShowResults((prev) => !prev);
+//     setBoundingBoxesVisible((prev) => !prev);
 //   };
 
 //   const toggleQueryLabel = (queryLabel) => {
-//     setQueryToggles(prev => ({
+//     setQueryToggles((prev) => ({
 //       ...prev,
-//       [queryLabel]: !prev[queryLabel]
+//       [queryLabel]: !prev[queryLabel],
 //     }));
+//     setBoundingBoxesVisible((prev) => {
+//       if (prev) {
+//         setTimeout(() => setBoundingBoxesVisible(true), 10);
+//         return false;
+//       }
+//       return true;
+//     });
 //   };
 
 //   const toggleAllQueryLabels = (value) => {
 //     const updated = {};
-//     Object.keys(queryToggles).forEach(key => {
+//     Object.keys(queryToggles).forEach((key) => {
 //       updated[key] = value;
 //     });
 //     setQueryToggles(updated);
 //   };
 
-//   const getFilteredBoxesData = () => {
-//     if (!results || results.length === 0 || !showResults) return null;
-    
-//     // Log current page for debugging
-//     console.log('Getting boxes for current page:', currentPage);
-    
-//     try {
-//       // This is a direct implementation using your response structure
-//       const formattedData = {};
-      
-//       results.forEach(result => {
-//         const queryLabel = result.query_label;
-//         const pages = result.results?.pages;
-
-//         if (queryToggles[queryLabel] === false) {
-//             console.log(`Query ${queryLabel} is toggled off, skipping`);
-//             return;
-//           }
-        
-//         if (!pages) {
-//           console.log(`No pages data found for ${queryLabel}`);
-//           return;
-//         }
-        
-//         // Convert to zero-based indexing (your currentPage is 1-based)
-//         const pageIndex = String(currentPage - 1);
-        
-//         console.log(`Looking for page ${pageIndex} in`, Object.keys(pages));
-        
-//         const pageBoxes = pages[pageIndex];
-//         if (!pageBoxes || !pageBoxes.length) {
-//           console.log(`No boxes found for page ${pageIndex} in ${queryLabel}`);
-//           return;
-//         }
-        
-//         console.log(`Found ${pageBoxes.length} boxes for ${queryLabel} on page ${pageIndex}`);
-        
-//         formattedData[queryLabel] = pageBoxes.map(box => {
-//           // Check if we have bbox or use x0,y0,x1,y1
-//           const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
-          
+//   // --- Get PDF dimensions from metadata in the results ---
+//   const getPdfDimensions = () => {
+//     if (currentStageResults && currentStageResults.length > 0) {
+//       // Check each result for pdf_metadata or item metadata
+//       for (const result of currentStageResults) {
+//         // First, check if there's a top-level pdf_metadata field
+//         if (result.pdf_metadata && result.pdf_metadata[currentPage - 1]) {
 //           return {
-//             ...box,
-//             coords,
-//             text: box.value || '',
-//             queryLabel
+//             width: result.pdf_metadata[currentPage - 1].width,
+//             height: result.pdf_metadata[currentPage - 1].height
 //           };
+//         }
+        
+//         // Then, check page items for metadata
+//         const pageIndex = String(currentPage - 1);
+//         const pages = result.results?.pages;
+//         if (pages && pages[pageIndex] && pages[pageIndex].length > 0) {
+//           // Check if any box has metadata
+//           for (const box of pages[pageIndex]) {
+//             if (box.meta && box.meta.width && box.meta.height) {
+//               return {
+//                 width: box.meta.width,
+//                 height: box.meta.height
+//               };
+//             }
+//           }
+//         }
+//       }
+//     }
+    
+//     // Fallback to provided dimensions
+//     return pageDimensions;
+//   };
+
+//   // --- Filtered boxes data for bounding box display ---
+//   const getFilteredBoxesData = () => {
+//     if (!currentStageResults || currentStageResults.length === 0 || !showResults) return null;
+//     try {
+//       const formattedData = {};
+//       currentStageResults.forEach((result) => {
+//         const queryLabel = result.query_label;
+//         if (queryToggles[queryLabel] === false) return;
+//         const pages = result.results?.pages;
+//         if (!pages) return;
+//         const pageIndex = String(currentPage - 1);
+//         const pageBoxes = pages[pageIndex];
+//         if (!pageBoxes || !pageBoxes.length) return;
+//         formattedData[queryLabel] = pageBoxes.map((box) => {
+//           const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
+//           return { ...box, coords, text: box.value || '', queryLabel };
 //         });
 //       });
-      
-//       console.log('Formatted boxes data:', formattedData);
-      
-//       // Return null if no boxes found
 //       return Object.keys(formattedData).length > 0 ? formattedData : null;
 //     } catch (error) {
 //       console.error('Error formatting boxes data:', error);
@@ -752,68 +796,39 @@ export default PdfProcessingResults;
 //     }
 //   };
 
+//   // --- Results count helper ---
 //   const getQueryLabelResultsCount = (label) => {
-//     const queryResult = results.find(r => r.query_label === label);
+//     const queryResult = (currentStageResults || []).find((r) => r.query_label === label);
 //     if (!queryResult || !queryResult.results?.pages) return 0;
-    
-//     // Adjust for zero-based indexing in the results
 //     const pageIndex = String(currentPage - 1);
 //     return (queryResult.results.pages[pageIndex] || []).length;
 //   };
 
-// //   const getQueryLabelColor = (queryLabel) => {
-// //     const colorMap = getColorMap();
-// //     return colorMap[queryLabel] || colorMap.default;
-// //   };
-
-//   // Fixed transformCoord function for PDFs
+//   // --- Transform bounding box coordinates ---
 //   const transformCoordWithContainer = (coords, color) => {
-//     // Make sure we're working with the correct page dimensions
 //     if (!pageDimensions.width || !pageDimensions.height) {
-//       console.warn('Page dimensions not available:', pageDimensions);
 //       return { x: 0, y: 0, width: 0, height: 0, color };
 //     }
     
-//     // Simple coordinate transformation
-//     // [x0, y0, x1, y1] to CSS positioning
-//     let [x0, y0, x1, y1] = coords;
-    
-//     // Convert to numbers if they're strings
-//     x0 = parseFloat(x0);
-//     y0 = parseFloat(y0);
-//     x1 = parseFloat(x1);
-//     y1 = parseFloat(y1);
-    
-//     // Fix any invalid coordinates (ensure x1 > x0 and y1 > y0)
+//     let [x0, y0, x1, y1] = coords.map(parseFloat);
 //     if (x1 < x0) [x0, x1] = [x1, x0];
 //     if (y1 < y0) [y0, y1] = [y1, y0];
     
-//     console.log('Original coords:', [x0, y0, x1, y1]);
-//     console.log('Page dimensions:', pageDimensions);
-//     console.log('Scale:', scale);
-    
-//     // Get the actual rendered dimensions of the PDF
 //     const renderedWidth = pageDimensions.width;
 //     const renderedHeight = pageDimensions.height;
     
-//     // Get the PDF's intrinsic dimensions (from metadata)
-//     // Find these in the PDF metadata or extract from API response
-//     const pdfWidth = 612.0; // From your API response metadata
-//     const pdfHeight = 792.0; // From your API response metadata
+//     // Get PDF dimensions dynamically
+//     const pdfDimensions = getPdfDimensions();
+//     const pdfWidth = pdfDimensions.width || 612.0;
+//     const pdfHeight = pdfDimensions.height || 792.0;
     
-//     // Calculate the ratio between rendered and original PDF dimensions
 //     const widthRatio = renderedWidth / pdfWidth;
 //     const heightRatio = renderedHeight / pdfHeight;
     
-//     // Apply coordinate transformation with correct scaling
-//     // PDF coordinates start from bottom-left, CSS starts from top-left
 //     const x = x0 * widthRatio;
-//     const y = y0 * heightRatio; // No flipping needed based on your coordinates
+//     const y = y0 * heightRatio;
 //     const width = (x1 - x0) * widthRatio;
 //     const height = (y1 - y0) * heightRatio;
-    
-//     const transformedCoords = { x, y, width, height };
-//     console.log('Transformed coords:', transformedCoords);
     
 //     return {
 //       position: 'absolute',
@@ -822,38 +837,26 @@ export default PdfProcessingResults;
 //       width: `${width}px`,
 //       height: `${height}px`,
 //       border: `2px solid ${color}`,
-//       backgroundColor: color.replace('1)', '0.3)'),
+//       backgroundColor: color.replace('1)', '0.3)').replace(')', ', 0.3)'),
 //       zIndex: 2000,
 //       pointerEvents: 'auto',
-//       opacity: 1
+//       opacity: 1,
 //     };
 //   };
 
-// //   const colorMap = getColorMap();
 //   const boxesData = getFilteredBoxesData();
 //   const resultsCount = boxesData ? getResultsCount(boxesData) : 0;
-  
-//   const canRenderBoxes = pdfContainerRef?.current && 
-//                         pageDimensions.width > 0 && 
-//                         pageDimensions.height > 0 && 
-//                         boundingBoxesVisible &&
-//                         boxesData;
+//   const canRenderBoxes =
+//     pdfContainerRef?.current &&
+//     pageDimensions.width > 0 &&
+//     pageDimensions.height > 0 &&
+//     boundingBoxesVisible &&
+//     boxesData;
 
-//   // Render bounding boxes directly into the PDF container using a portal
+//   // --- Render bounding boxes using a portal ---
 //   const renderBoundingBoxesPortal = () => {
-//     if (!canRenderBoxes) {
-//       console.log('Cannot render boxes yet:', { 
-//         containerExists: !!pdfContainerRef?.current,
-//         pageDimensions,
-//         boundingBoxesVisible,
-//         hasBoxesData: !!boxesData
-//       });
-//       return null;
-//     }
+//     if (!canRenderBoxes) return null;
     
-//     console.log('Rendering bounding boxes portal with dimensions:', pageDimensions);
-    
-//     // Create a dedicated container for the bounding boxes if it doesn't exist
 //     let boxContainer = document.getElementById('bounding-box-container');
 //     if (!boxContainer) {
 //       boxContainer = document.createElement('div');
@@ -864,16 +867,21 @@ export default PdfProcessingResults;
 //       boxContainer.style.width = '100%';
 //       boxContainer.style.height = '100%';
 //       boxContainer.style.pointerEvents = 'none';
-//       boxContainer.style.zIndex = '1000'; // Ensure it's on top
+//       boxContainer.style.zIndex = '1000';
+//       boxContainer.style.border = 'none';
+//       boxContainer.style.background = 'transparent';
+//       boxContainer.style.boxShadow = 'none';
+//       boxContainer.style.overflow = 'hidden';
       
-//       // Add it to the PDF container
+//       // Ensure parent has position: relative
+//       pdfContainerRef.current.style.position = 'relative';
 //       pdfContainerRef.current.appendChild(boxContainer);
 //     }
     
 //     return ReactDOM.createPortal(
 //       <BoundingBoxes
 //         boxesData={boxesData}
-//         transformCoord={(coords, color) => transformCoordWithContainer(coords, color)}
+//         transformCoord={transformCoordWithContainer}
 //         colorMap={colorMap}
 //         showTooltips={true}
 //       />,
@@ -881,21 +889,39 @@ export default PdfProcessingResults;
 //     );
 //   };
 
+//   // Check if there are results for the current stage
+//   const hasCurrentStageResults = currentStageResults && currentStageResults.length > 0;
+
 //   return (
 //     <>
-//       {/* Control Panel */}
+//       {/* Process Controls */}
 //       <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+//         <FileMetadataDisplay metadata={metadata} />
 //         <Button
 //           variant="contained"
 //           color="primary"
-//           onClick={processPdf}
-//           disabled={loading || !fileId}
-//           startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+//           onClick={onProcessPdf}
+//           disabled={processingLoading || !fileId}
+//           startIcon={processingLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
 //         >
-//           {loading ? "Processing..." : "Process PDF"}
+//           {processingLoading ? "Processing..." : "Process PDF"}
 //         </Button>
 
-//         {results.length > 0 && (
+//         <Tooltip title={!hasClassification ? "File must have a classification to run vision inference" : ""}>
+//           <span>
+//             <Button
+//               variant="contained"
+//               color="secondary"
+//               onClick={onRunVisionInference}
+//               disabled={visionLoading || !fileId || !hasClassification}
+//               startIcon={visionLoading ? <CircularProgress size={20} color="inherit" /> : <VisibilityIcon />}
+//             >
+//               {visionLoading ? "Running..." : "Run Vision Inference"}
+//             </Button>
+//           </span>
+//         </Tooltip>
+
+//         {hasCurrentStageResults && (
 //           <Button
 //             variant="outlined"
 //             color="primary"
@@ -906,52 +932,62 @@ export default PdfProcessingResults;
 //           </Button>
 //         )}
 
-//         {results.length > 0 && (
+//         {hasCurrentStageResults && (
 //           <Typography variant="body2" color="textSecondary">
-//             Found {resultsCount} results on page {currentPage}
+//             Found {resultsCount} results on page {currentPage} (Stage {selectedStage})
 //           </Typography>
 //         )}
 //       </Box>
 
 //       {/* Query Filters */}
-//       {results.length > 0 && (
-//         <Paper elevation={1} sx={{
-//           p: 2, mb: 2,
-//           bgcolor: '#f5f5f5',
-//           border: '1px solid #e0e0e0',
-//           borderRadius: '4px'
-//         }}>
+//       {hasCurrentStageResults && (
+//         <Paper
+//           elevation={1}
+//           sx={{
+//             p: 2,
+//             mb: 2,
+//             bgcolor: '#f5f5f5',
+//             border: '1px solid #e0e0e0',
+//             borderRadius: '4px',
+//           }}
+//         >
 //           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
 //             <Typography variant="subtitle1" fontWeight="bold">
 //               Query Types
 //             </Typography>
 //             <Box>
-//               <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>Show All</Button>
-//               <Button size="small" onClick={() => toggleAllQueryLabels(false)}>Hide All</Button>
-//               <IconButton size="small" onClick={() => setShowQueryControls(prev => !prev)} sx={{ ml: 1 }}>
+//               <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>
+//                 Show All
+//               </Button>
+//               <Button size="small" onClick={() => toggleAllQueryLabels(false)}>
+//                 Hide All
+//               </Button>
+//               <IconButton size="small" onClick={() => setShowQueryControls((prev) => !prev)} sx={{ ml: 1 }}>
 //                 {showQueryControls ? <ExpandLessIcon /> : <ExpandMoreIcon />}
 //               </IconButton>
 //             </Box>
 //           </Box>
-
 //           <Collapse in={showQueryControls}>
 //             <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
-//               {results.map(result => {
+//               {currentStageResults.map((result) => {
 //                 const label = result.query_label;
 //                 const description = result?.description || '';
 //                 const count = getQueryLabelResultsCount(label);
 //                 const color = getColorForLabel(label);
 
 //                 return (
-//                   <Box key={label} sx={{
-//                     display: 'flex',
-//                     flexDirection: 'column',
-//                     bgcolor: 'white',
-//                     p: 1,
-//                     borderRadius: '4px',
-//                     border: '1px solid #e0e0e0',
-//                     minWidth: '200px'
-//                   }}>
+//                   <Box
+//                     key={label}
+//                     sx={{
+//                       display: 'flex',
+//                       flexDirection: 'column',
+//                       bgcolor: 'white',
+//                       p: 1,
+//                       borderRadius: '4px',
+//                       border: '1px solid #e0e0e0',
+//                       minWidth: '200px',
+//                     }}
+//                   >
 //                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
 //                       <FormControlLabel
 //                         control={
@@ -961,16 +997,20 @@ export default PdfProcessingResults;
 //                             size="small"
 //                           />
 //                         }
-//                         label={<Typography variant="body2" fontWeight="bold">{label}</Typography>}
+//                         label={
+//                           <Typography variant="body2" fontWeight="bold">
+//                             {label}
+//                           </Typography>
+//                         }
 //                       />
-//                     <Chip
+//                       <Chip
 //                         label={count}
 //                         size="small"
 //                         sx={{
-//                             bgcolor: getColorForLabel(label) + '20', // 20 = 12% opacity in hex
-//                             border: `1px solid ${getColorForLabel(label)}`
+//                           bgcolor: getColorForLabel(label) + '20',
+//                           border: `1px solid ${getColorForLabel(label)}`,
 //                         }}
-//                         />
+//                       />
 //                     </Box>
 //                     {description && (
 //                       <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary' }}>
@@ -988,15 +1028,15 @@ export default PdfProcessingResults;
 //       {/* Render the bounding boxes via portal */}
 //       {renderBoundingBoxesPortal()}
 
-//       {/* Error Snackbar */}
+//       {/* Error/Success Snackbar */}
 //       <Snackbar
-//         open={!!error}
+//         open={!!localError}
 //         autoHideDuration={6000}
-//         onClose={() => setError(null)}
+//         onClose={() => setLocalError(null)}
 //         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
 //       >
-//         <Alert severity="error" onClose={() => setError(null)}>
-//           {error}
+//         <Alert severity={localError?.severity || "error"} onClose={() => setLocalError(null)}>
+//           {localError?.message || localError}
 //         </Alert>
 //       </Snackbar>
 //     </>
@@ -1004,3 +1044,914 @@ export default PdfProcessingResults;
 // };
 
 // export default PdfProcessingResults;
+
+
+// import React, { useState, useEffect } from 'react';
+// import {
+//   Button,
+//   CircularProgress,
+//   Snackbar,
+//   Alert,
+//   Box,
+//   Typography,
+//   FormGroup,
+//   FormControlLabel,
+//   Switch,
+//   Chip,
+//   Paper,
+//   Collapse,
+//   IconButton,
+//   Tooltip,
+// } from '@mui/material';
+// import SearchIcon from '@mui/icons-material/Search';
+// import CancelIcon from '@mui/icons-material/Cancel';
+// import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+// import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+// import VisibilityIcon from '@mui/icons-material/Visibility';
+// import ReactDOM from 'react-dom';
+
+// import BoundingBoxes from './BoundingBoxes';
+// import { getResultsCount } from './utils/pdfUtils';
+
+// import { usePdfDataContext } from '../../context/PdfDataContext';
+// import FileMetadataDisplay from './FileMetadataDisplay';
+
+// const PdfProcessingResults = ({
+//   fileId,
+//   stage,
+//   pageDimensions,
+//   currentPage,
+//   pdfContainerRef,
+//   scale = 1.5,
+//   metadata = {},
+// }) => {
+//   const {
+//     processingResults,
+//     processingLoading,
+//     visionLoading,
+//     error,
+//     handleProcessPdf,
+//     handleRunVisionInference,
+//     clearAllResults,
+//     reloadMetadata,
+//   } = usePdfDataContext();
+
+//   // Local state
+//   const [showResults, setShowResults] = useState(true);
+//   const [queryToggles, setQueryToggles] = useState({});
+//   const [showQueryControls, setShowQueryControls] = useState(true);
+//   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
+//   const [localError, setLocalError] = useState(null);
+
+//   // Clean up the container when component unmounts
+//   useEffect(() => {
+//     return () => {
+//       const boxContainer = document.getElementById('bounding-box-container');
+//       if (boxContainer && boxContainer.parentNode) {
+//         boxContainer.parentNode.removeChild(boxContainer);
+//       }
+//     };
+//   }, []);
+
+//   // On error from hook, show snackbar
+//   useEffect(() => {
+//     if (error) setLocalError(error);
+//   }, [error]);
+
+//   // Update toggles/results on new process results
+//   useEffect(() => {
+//     if (!processingResults || processingResults.length === 0) return;
+//     const initialToggles = {};
+//     processingResults.forEach((result) => {
+//       initialToggles[result.query_label] = true;
+//     });
+//     setQueryToggles(initialToggles);
+//     setBoundingBoxesVisible(true);
+//     setShowResults(true);
+//   }, [processingResults]);
+
+//   // Force bounding box rerender on toggle change
+//   useEffect(() => {
+//     if (showResults && Object.keys(queryToggles).length > 0) {
+//       setBoundingBoxesVisible(false);
+//       const timer = setTimeout(() => setBoundingBoxesVisible(true), 50);
+//       return () => clearTimeout(timer);
+//     }
+//   }, [queryToggles, showResults]);
+
+//   // Check if file has classification
+//   const hasClassification = !!metadata?.classification;
+
+//   const onProcessPdf = async () => {
+//     if (!fileId) {
+//       setLocalError("No file selected");
+//       return;
+//     }
+//     clearAllResults();
+//     setBoundingBoxesVisible(false);
+//     try {
+//       await handleProcessPdf({ fileId, stage });
+//       await reloadMetadata(); 
+//     } catch (err) {
+//       setLocalError(err.message);
+//     }
+//   };
+  
+//   const onRunVisionInference = async () => {
+//     if (!fileId || !hasClassification) {
+//       setLocalError("Cannot run vision inference - file must have a classification");
+//       return;
+//     }
+//     try {
+//       await handleRunVisionInference({
+//         fileId,
+//         stage,
+//         classificationLabel: metadata.classification,
+//       });
+//       setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
+//       await reloadMetadata(); 
+//     } catch (err) {
+//       setLocalError(err.message);
+//     }
+//   };
+
+//   // --- Custom color for query label ---
+//   const getColorForLabel = (() => {
+//     const cache = {};
+//     return (label) => {
+//       if (cache[label]) return cache[label];
+//       let hash = 0;
+//       for (let i = 0; i < label.length; i++) {
+//         hash = label.charCodeAt(i) + ((hash << 5) - hash);
+//       }
+//       const hue = Math.abs(hash) % 360;
+//       const saturation = 60 + (Math.abs(hash) % 30);
+//       const lightness = 45 + (Math.abs(hash * 7) % 30);
+//       const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+//       cache[label] = color;
+//       return color;
+//     };
+//   })();
+
+//   // Map for label -> color
+//   const colorMap = {};
+//   (processingResults || []).forEach((r) => {
+//     colorMap[r.query_label] = getColorForLabel(r.query_label);
+//   });
+
+//   // --- Toggle logic ---
+//   const toggleResults = () => {
+//     setShowResults((prev) => !prev);
+//     setBoundingBoxesVisible((prev) => !prev);
+//   };
+
+//   const toggleQueryLabel = (queryLabel) => {
+//     setQueryToggles((prev) => ({
+//       ...prev,
+//       [queryLabel]: !prev[queryLabel],
+//     }));
+//     setBoundingBoxesVisible((prev) => {
+//       if (prev) {
+//         setTimeout(() => setBoundingBoxesVisible(true), 10);
+//         return false;
+//       }
+//       return true;
+//     });
+//   };
+
+//   const toggleAllQueryLabels = (value) => {
+//     const updated = {};
+//     Object.keys(queryToggles).forEach((key) => {
+//       updated[key] = value;
+//     });
+//     setQueryToggles(updated);
+//   };
+
+//   // --- Get PDF dimensions from metadata in the results ---
+//   const getPdfDimensions = () => {
+//     if (processingResults && processingResults.length > 0) {
+//       // Check each result for pdf_metadata or item metadata
+//       for (const result of processingResults) {
+//         // First, check if there's a top-level pdf_metadata field
+//         if (result.pdf_metadata && result.pdf_metadata[currentPage - 1]) {
+//           return {
+//             width: result.pdf_metadata[currentPage - 1].width,
+//             height: result.pdf_metadata[currentPage - 1].height
+//           };
+//         }
+        
+//         // Then, check page items for metadata
+//         const pageIndex = String(currentPage - 1);
+//         const pages = result.results?.pages;
+//         if (pages && pages[pageIndex] && pages[pageIndex].length > 0) {
+//           // Check if any box has metadata
+//           for (const box of pages[pageIndex]) {
+//             if (box.meta && box.meta.width && box.meta.height) {
+//               return {
+//                 width: box.meta.width,
+//                 height: box.meta.height
+//               };
+//             }
+//           }
+//         }
+//       }
+//     }
+    
+//     // Fallback to provided dimensions
+//     return pageDimensions;
+//   };
+
+//   // --- Filtered boxes data for bounding box display ---
+//   const getFilteredBoxesData = () => {
+//     if (!processingResults || processingResults.length === 0 || !showResults) return null;
+//     try {
+//       const formattedData = {};
+//       processingResults.forEach((result) => {
+//         const queryLabel = result.query_label;
+//         if (queryToggles[queryLabel] === false) return;
+//         const pages = result.results?.pages;
+//         if (!pages) return;
+//         const pageIndex = String(currentPage - 1);
+//         const pageBoxes = pages[pageIndex];
+//         if (!pageBoxes || !pageBoxes.length) return;
+//         formattedData[queryLabel] = pageBoxes.map((box) => {
+//           const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
+//           return { ...box, coords, text: box.value || '', queryLabel };
+//         });
+//       });
+//       return Object.keys(formattedData).length > 0 ? formattedData : null;
+//     } catch (error) {
+//       console.error('Error formatting boxes data:', error);
+//       return null;
+//     }
+//   };
+
+//   // --- Results count helper ---
+//   const getQueryLabelResultsCount = (label) => {
+//     const queryResult = (processingResults || []).find((r) => r.query_label === label);
+//     if (!queryResult || !queryResult.results?.pages) return 0;
+//     const pageIndex = String(currentPage - 1);
+//     return (queryResult.results.pages[pageIndex] || []).length;
+//   };
+
+//   // --- Transform bounding box coordinates ---
+//   const transformCoordWithContainer = (coords, color) => {
+//     if (!pageDimensions.width || !pageDimensions.height) {
+//       return { x: 0, y: 0, width: 0, height: 0, color };
+//     }
+    
+//     let [x0, y0, x1, y1] = coords.map(parseFloat);
+//     if (x1 < x0) [x0, x1] = [x1, x0];
+//     if (y1 < y0) [y0, y1] = [y1, y0];
+    
+//     const renderedWidth = pageDimensions.width;
+//     const renderedHeight = pageDimensions.height;
+    
+//     // Get PDF dimensions dynamically
+//     const pdfDimensions = getPdfDimensions();
+//     const pdfWidth = pdfDimensions.width || 612.0;
+//     const pdfHeight = pdfDimensions.height || 792.0;
+    
+//     const widthRatio = renderedWidth / pdfWidth;
+//     const heightRatio = renderedHeight / pdfHeight;
+    
+//     const x = x0 * widthRatio;
+//     const y = y0 * heightRatio;
+//     const width = (x1 - x0) * widthRatio;
+//     const height = (y1 - y0) * heightRatio;
+    
+//     return {
+//       position: 'absolute',
+//       left: `${x}px`,
+//       top: `${y}px`,
+//       width: `${width}px`,
+//       height: `${height}px`,
+//       border: `2px solid ${color}`,
+//       backgroundColor: color.replace('1)', '0.3)').replace(')', ', 0.3)'),
+//       zIndex: 2000,
+//       pointerEvents: 'auto',
+//       opacity: 1,
+//     };
+//   };
+
+//   const boxesData = getFilteredBoxesData();
+//   const resultsCount = boxesData ? getResultsCount(boxesData) : 0;
+//   const canRenderBoxes =
+//     pdfContainerRef?.current &&
+//     pageDimensions.width > 0 &&
+//     pageDimensions.height > 0 &&
+//     boundingBoxesVisible &&
+//     boxesData;
+
+//   // --- Render bounding boxes using a portal ---
+//   const renderBoundingBoxesPortal = () => {
+//     if (!canRenderBoxes) return null;
+    
+//     let boxContainer = document.getElementById('bounding-box-container');
+//     if (!boxContainer) {
+//       boxContainer = document.createElement('div');
+//       boxContainer.id = 'bounding-box-container';
+//       boxContainer.style.position = 'absolute';
+//       boxContainer.style.top = '0';
+//       boxContainer.style.left = '0';
+//       boxContainer.style.width = '100%';
+//       boxContainer.style.height = '100%';
+//       boxContainer.style.pointerEvents = 'none';
+//       boxContainer.style.zIndex = '1000';
+//       boxContainer.style.border = 'none';
+//       boxContainer.style.background = 'transparent';
+//       boxContainer.style.boxShadow = 'none';
+//       boxContainer.style.overflow = 'hidden';
+      
+//       // Ensure parent has position: relative
+//       pdfContainerRef.current.style.position = 'relative';
+//       pdfContainerRef.current.appendChild(boxContainer);
+//     }
+    
+//     return ReactDOM.createPortal(
+//       <BoundingBoxes
+//         boxesData={boxesData}
+//         transformCoord={transformCoordWithContainer}
+//         colorMap={colorMap}
+//         showTooltips={true}
+//       />,
+//       boxContainer
+//     );
+//   };
+
+//   return (
+//     <>
+//       {/* Process Controls */}
+//       <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+//       <FileMetadataDisplay metadata={metadata} />
+//         <Button
+//           variant="contained"
+//           color="primary"
+//           onClick={onProcessPdf}
+//           disabled={processingLoading || !fileId}
+//           startIcon={processingLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+//         >
+//           {processingLoading ? "Processing..." : "Process PDF"}
+//         </Button>
+
+//         <Tooltip title={!hasClassification ? "File must have a classification to run vision inference" : ""}>
+//           <span>
+//             <Button
+//               variant="contained"
+//               color="secondary"
+//               onClick={onRunVisionInference}
+//               disabled={visionLoading || !fileId || !hasClassification}
+//               startIcon={visionLoading ? <CircularProgress size={20} color="inherit" /> : <VisibilityIcon />}
+//             >
+//               {visionLoading ? "Running..." : "Run Vision Inference"}
+//             </Button>
+//           </span>
+//         </Tooltip>
+
+//         {processingResults.length > 0 && (
+//           <Button
+//             variant="outlined"
+//             color="primary"
+//             onClick={toggleResults}
+//             startIcon={showResults ? <CancelIcon /> : <SearchIcon />}
+//           >
+//             {showResults ? "Hide Results" : "Show Results"}
+//           </Button>
+//         )}
+
+//         {processingResults.length > 0 && (
+//           <Typography variant="body2" color="textSecondary">
+//             Found {resultsCount} results on page {currentPage}
+//           </Typography>
+//         )}
+
+//       </Box>
+
+//       {/* Query Filters */}
+//       {processingResults.length > 0 && (
+//         <Paper
+//           elevation={1}
+//           sx={{
+//             p: 2,
+//             mb: 2,
+//             bgcolor: '#f5f5f5',
+//             border: '1px solid #e0e0e0',
+//             borderRadius: '4px',
+//           }}
+//         >
+//           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+//             <Typography variant="subtitle1" fontWeight="bold">
+//               Query Types
+//             </Typography>
+//             <Box>
+//               <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>
+//                 Show All
+//               </Button>
+//               <Button size="small" onClick={() => toggleAllQueryLabels(false)}>
+//                 Hide All
+//               </Button>
+//               <IconButton size="small" onClick={() => setShowQueryControls((prev) => !prev)} sx={{ ml: 1 }}>
+//                 {showQueryControls ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+//               </IconButton>
+//             </Box>
+//           </Box>
+//           <Collapse in={showQueryControls}>
+//             <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
+//               {processingResults.map((result) => {
+//                 const label = result.query_label;
+//                 const description = result?.description || '';
+//                 const count = getQueryLabelResultsCount(label);
+//                 const color = getColorForLabel(label);
+
+//                 return (
+//                   <Box
+//                     key={label}
+//                     sx={{
+//                       display: 'flex',
+//                       flexDirection: 'column',
+//                       bgcolor: 'white',
+//                       p: 1,
+//                       borderRadius: '4px',
+//                       border: '1px solid #e0e0e0',
+//                       minWidth: '200px',
+//                     }}
+//                   >
+//                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+//                       <FormControlLabel
+//                         control={
+//                           <Switch
+//                             checked={queryToggles[label] !== false}
+//                             onChange={() => toggleQueryLabel(label)}
+//                             size="small"
+//                           />
+//                         }
+//                         label={
+//                           <Typography variant="body2" fontWeight="bold">
+//                             {label}
+//                           </Typography>
+//                         }
+//                       />
+//                       <Chip
+//                         label={count}
+//                         size="small"
+//                         sx={{
+//                           bgcolor: getColorForLabel(label) + '20',
+//                           border: `1px solid ${getColorForLabel(label)}`,
+//                         }}
+//                       />
+//                     </Box>
+//                     {description && (
+//                       <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary' }}>
+//                         {description}
+//                       </Typography>
+//                     )}
+//                   </Box>
+//                 );
+//               })}
+//             </FormGroup>
+//           </Collapse>
+//         </Paper>
+//       )}
+
+//       {/* Render the bounding boxes via portal */}
+//       {renderBoundingBoxesPortal()}
+
+//       {/* Error/Success Snackbar */}
+//       <Snackbar
+//         open={!!localError}
+//         autoHideDuration={6000}
+//         onClose={() => setLocalError(null)}
+//         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+//       >
+//         <Alert severity={localError?.severity || "error"} onClose={() => setLocalError(null)}>
+//           {localError?.message || localError}
+//         </Alert>
+//       </Snackbar>
+//     </>
+//   );
+// };
+
+// export default PdfProcessingResults;
+
+// // import React, { useState, useEffect } from 'react';
+// // import {
+// //   Button,
+// //   CircularProgress,
+// //   Snackbar,
+// //   Alert,
+// //   Box,
+// //   Typography,
+// //   FormGroup,
+// //   FormControlLabel,
+// //   Switch,
+// //   Chip,
+// //   Paper,
+// //   Collapse,
+// //   IconButton,
+// //   Tooltip,
+// // } from '@mui/material';
+// // import SearchIcon from '@mui/icons-material/Search';
+// // import CancelIcon from '@mui/icons-material/Cancel';
+// // import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+// // import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+// // import VisibilityIcon from '@mui/icons-material/Visibility';
+// // import ReactDOM from 'react-dom';
+
+// // import BoundingBoxes from './BoundingBoxes';
+// // import { getResultsCount } from './utils/pdfUtils';
+
+// // import { usePdfDataContext } from '../../context/PdfDataContext';
+
+// // const PdfProcessingResults = ({
+// //   fileId,
+// //   stage,
+// //   pageDimensions,
+// //   currentPage,
+// //   pdfContainerRef,
+// //   scale = 1.5,
+// //   metadata = {},
+// // }) => {
+// //   const {
+// //     processingResults,
+// //     processingLoading,      // use this for "Process PDF" button spinner/disable
+// //     visionLoading,         // use this for "Vision Inference" button spinner/disable
+// //     error,
+// //     handleProcessPdf,
+// //     handleRunVisionInference,
+// //     clearAllResults,
+// //     reloadMetadata,
+// //   } = usePdfDataContext();
+
+// //   // Local state
+// //   const [showResults, setShowResults] = useState(true);
+// //   const [queryToggles, setQueryToggles] = useState({});
+// //   const [showQueryControls, setShowQueryControls] = useState(true);
+// //   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
+// //   const [localError, setLocalError] = useState(null);
+
+// //   // On error from hook, show snackbar
+// //   useEffect(() => {
+// //     if (error) setLocalError(error);
+// //   }, [error]);
+
+// //   // Update toggles/results on new process results
+// //   useEffect(() => {
+// //     if (!processingResults || processingResults.length === 0) return;
+// //     const initialToggles = {};
+// //     processingResults.forEach((result) => {
+// //       initialToggles[result.query_label] = true;
+// //     });
+// //     setQueryToggles(initialToggles);
+// //     setBoundingBoxesVisible(true);
+// //     setShowResults(true);
+// //   }, [processingResults]);
+
+// //   // Force bounding box rerender on toggle change
+// //   useEffect(() => {
+// //     if (showResults && Object.keys(queryToggles).length > 0) {
+// //       setBoundingBoxesVisible(false);
+// //       const timer = setTimeout(() => setBoundingBoxesVisible(true), 50);
+// //       return () => clearTimeout(timer);
+// //     }
+// //   }, [queryToggles, showResults]);
+
+// //   // Check if file has classification
+// //   const hasClassification = !!metadata?.classification;
+
+// //   const onProcessPdf = async () => {
+// //     if (!fileId) {
+// //       setLocalError("No file selected");
+// //       return;
+// //     }
+// //     clearAllResults();
+// //     setBoundingBoxesVisible(false);
+// //     try {
+// //       await handleProcessPdf({ fileId, stage });   // <-- This manages its own loading state
+// //       await reloadMetadata(); 
+// //     } catch (err) {
+// //       setLocalError(err.message);
+// //     }
+// //   };
+  
+// //   const onRunVisionInference = async () => {
+// //     if (!fileId || !hasClassification) {
+// //       setLocalError("Cannot run vision inference - file must have a classification");
+// //       return;
+// //     }
+// //     try {
+// //       await handleRunVisionInference({
+// //         fileId,
+// //         stage,
+// //         classificationLabel: metadata.classification,
+// //       }); // <-- This manages its own loading state
+// //       setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
+// //       await reloadMetadata(); 
+// //     } catch (err) {
+// //       setLocalError(err.message);
+// //     }
+// //   };
+
+// //   // --- Custom color for query label ---
+// //   const getColorForLabel = (() => {
+// //     const cache = {};
+// //     return (label) => {
+// //       if (cache[label]) return cache[label];
+// //       let hash = 0;
+// //       for (let i = 0; i < label.length; i++) {
+// //         hash = label.charCodeAt(i) + ((hash << 5) - hash);
+// //       }
+// //       const hue = Math.abs(hash) % 360;
+// //       const saturation = 60 + (Math.abs(hash) % 30);
+// //       const lightness = 45 + (Math.abs(hash * 7) % 30);
+// //       const color = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+// //       cache[label] = color;
+// //       return color;
+// //     };
+// //   })();
+
+// //   // Map for label -> color
+// //   const colorMap = {};
+// //   (processingResults || []).forEach((r) => {
+// //     colorMap[r.query_label] = getColorForLabel(r.query_label);
+// //   });
+
+// //   // --- Toggle logic ---
+// //   const toggleResults = () => {
+// //     setShowResults((prev) => !prev);
+// //     setBoundingBoxesVisible((prev) => !prev);
+// //   };
+
+// //   const toggleQueryLabel = (queryLabel) => {
+// //     setQueryToggles((prev) => ({
+// //       ...prev,
+// //       [queryLabel]: !prev[queryLabel],
+// //     }));
+// //     setBoundingBoxesVisible((prev) => {
+// //       if (prev) {
+// //         setTimeout(() => setBoundingBoxesVisible(true), 10);
+// //         return false;
+// //       }
+// //       return true;
+// //     });
+// //   };
+
+// //   const toggleAllQueryLabels = (value) => {
+// //     const updated = {};
+// //     Object.keys(queryToggles).forEach((key) => {
+// //       updated[key] = value;
+// //     });
+// //     setQueryToggles(updated);
+// //   };
+
+// //   // --- Filtered boxes data for bounding box display ---
+// //   const getFilteredBoxesData = () => {
+// //     if (!processingResults || processingResults.length === 0 || !showResults) return null;
+// //     try {
+// //       const formattedData = {};
+// //       processingResults.forEach((result) => {
+// //         const queryLabel = result.query_label;
+// //         if (queryToggles[queryLabel] === false) return;
+// //         const pages = result.results?.pages;
+// //         if (!pages) return;
+// //         const pageIndex = String(currentPage - 1);
+// //         const pageBoxes = pages[pageIndex];
+// //         if (!pageBoxes || !pageBoxes.length) return;
+// //         formattedData[queryLabel] = pageBoxes.map((box) => {
+// //           const coords = box.bbox || [box.x0, box.y0, box.x1, box.y1];
+// //           return { ...box, coords, text: box.value || '', queryLabel };
+// //         });
+// //       });
+// //       return Object.keys(formattedData).length > 0 ? formattedData : null;
+// //     } catch (error) {
+// //       console.error('Error formatting boxes data:', error);
+// //       return null;
+// //     }
+// //   };
+
+// //   // --- Results count helper ---
+// //   const getQueryLabelResultsCount = (label) => {
+// //     const queryResult = (processingResults || []).find((r) => r.query_label === label);
+// //     if (!queryResult || !queryResult.results?.pages) return 0;
+// //     const pageIndex = String(currentPage - 1);
+// //     return (queryResult.results.pages[pageIndex] || []).length;
+// //   };
+
+// //   // --- Transform bounding box coordinates ---
+// //   const transformCoordWithContainer = (coords, color) => {
+// //     if (!pageDimensions.width || !pageDimensions.height) {
+// //       return { x: 0, y: 0, width: 0, height: 0, color };
+// //     }
+// //     let [x0, y0, x1, y1] = coords.map(parseFloat);
+// //     if (x1 < x0) [x0, x1] = [x1, x0];
+// //     if (y1 < y0) [y0, y1] = [y1, y0];
+// //     const renderedWidth = pageDimensions.width;
+// //     const renderedHeight = pageDimensions.height;
+// //     const pdfWidth = 612.0;
+// //     const pdfHeight = 792.0;
+// //     const widthRatio = renderedWidth / pdfWidth;
+// //     const heightRatio = renderedHeight / pdfHeight;
+// //     const x = x0 * widthRatio;
+// //     const y = y0 * heightRatio;
+// //     const width = (x1 - x0) * widthRatio;
+// //     const height = (y1 - y0) * heightRatio;
+// //     return {
+// //       position: 'absolute',
+// //       left: `${x}px`,
+// //       top: `${y}px`,
+// //       width: `${width}px`,
+// //       height: `${height}px`,
+// //       border: `2px solid ${color}`,
+// //       backgroundColor: color.replace('1)', '0.3)'),
+// //       zIndex: 2000,
+// //       pointerEvents: 'auto',
+// //       opacity: 1,
+// //     };
+// //   };
+
+// //   const boxesData = getFilteredBoxesData();
+// //   const resultsCount = boxesData ? getResultsCount(boxesData) : 0;
+// //   const canRenderBoxes =
+// //     pdfContainerRef?.current &&
+// //     pageDimensions.width > 0 &&
+// //     pageDimensions.height > 0 &&
+// //     boundingBoxesVisible &&
+// //     boxesData;
+
+// //   // --- Render bounding boxes using a portal ---
+// //   const renderBoundingBoxesPortal = () => {
+// //     if (!canRenderBoxes) return null;
+// //     let boxContainer = document.getElementById('bounding-box-container');
+// //     if (!boxContainer) {
+// //       boxContainer = document.createElement('div');
+// //       boxContainer.id = 'bounding-box-container';
+// //       boxContainer.style.position = 'absolute';
+// //       boxContainer.style.top = '0';
+// //       boxContainer.style.left = '0';
+// //       boxContainer.style.width = '100%';
+// //       boxContainer.style.height = '100%';
+// //       boxContainer.style.pointerEvents = 'none';
+// //       boxContainer.style.zIndex = '1000';
+// //       pdfContainerRef.current.appendChild(boxContainer);
+// //     }
+// //     return ReactDOM.createPortal(
+// //       <BoundingBoxes
+// //         boxesData={boxesData}
+// //         transformCoord={transformCoordWithContainer}
+// //         colorMap={colorMap}
+// //         showTooltips={true}
+// //       />,
+// //       boxContainer
+// //     );
+// //   };
+
+// //   return (
+// //     <>
+// //       {/* Process Controls */}
+// //       <Box sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+// //         <Button
+// //           variant="contained"
+// //           color="primary"
+// //           onClick={onProcessPdf}
+// //           disabled={processingLoading || !fileId}
+// //           startIcon={processingLoading ? <CircularProgress size={20} color="inherit" /> : <SearchIcon />}
+// //         >
+// //           {processingLoading ? "Processing..." : "Process PDF"}
+// //         </Button>
+
+// //         <Tooltip title={!hasClassification ? "File must have a classification to run vision inference" : ""}>
+// //           <span>
+// //             <Button
+// //               variant="contained"
+// //               color="secondary"
+// //               onClick={onRunVisionInference}
+// //               disabled={visionLoading || !fileId || !hasClassification}
+// //               startIcon={visionLoading ? <CircularProgress size={20} color="inherit" /> : <VisibilityIcon />}
+// //             >
+// //               {visionLoading ? "Running..." : "Run Vision Inference"}
+// //             </Button>
+// //           </span>
+// //         </Tooltip>
+
+// //         {processingResults.length > 0 && (
+// //           <Button
+// //             variant="outlined"
+// //             color="primary"
+// //             onClick={toggleResults}
+// //             startIcon={showResults ? <CancelIcon /> : <SearchIcon />}
+// //           >
+// //             {showResults ? "Hide Results" : "Show Results"}
+// //           </Button>
+// //         )}
+
+// //         {processingResults.length > 0 && (
+// //           <Typography variant="body2" color="textSecondary">
+// //             Found {resultsCount} results on page {currentPage}
+// //           </Typography>
+// //         )}
+// //       </Box>
+
+// //       {/* Query Filters */}
+// //       {processingResults.length > 0 && (
+// //         <Paper
+// //           elevation={1}
+// //           sx={{
+// //             p: 2,
+// //             mb: 2,
+// //             bgcolor: '#f5f5f5',
+// //             border: '1px solid #e0e0e0',
+// //             borderRadius: '4px',
+// //           }}
+// //         >
+// //           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+// //             <Typography variant="subtitle1" fontWeight="bold">
+// //               Query Types
+// //             </Typography>
+// //             <Box>
+// //               <Button size="small" onClick={() => toggleAllQueryLabels(true)} sx={{ mr: 1 }}>
+// //                 Show All
+// //               </Button>
+// //               <Button size="small" onClick={() => toggleAllQueryLabels(false)}>
+// //                 Hide All
+// //               </Button>
+// //               <IconButton size="small" onClick={() => setShowQueryControls((prev) => !prev)} sx={{ ml: 1 }}>
+// //                 {showQueryControls ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+// //               </IconButton>
+// //             </Box>
+// //           </Box>
+// //           <Collapse in={showQueryControls}>
+// //             <FormGroup sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}>
+// //               {processingResults.map((result) => {
+// //                 const label = result.query_label;
+// //                 const description = result?.description || '';
+// //                 const count = getQueryLabelResultsCount(label);
+// //                 const color = getColorForLabel(label);
+
+// //                 return (
+// //                   <Box
+// //                     key={label}
+// //                     sx={{
+// //                       display: 'flex',
+// //                       flexDirection: 'column',
+// //                       bgcolor: 'white',
+// //                       p: 1,
+// //                       borderRadius: '4px',
+// //                       border: '1px solid #e0e0e0',
+// //                       minWidth: '200px',
+// //                     }}
+// //                   >
+// //                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+// //                       <FormControlLabel
+// //                         control={
+// //                           <Switch
+// //                             checked={queryToggles[label] !== false}
+// //                             onChange={() => toggleQueryLabel(label)}
+// //                             size="small"
+// //                           />
+// //                         }
+// //                         label={
+// //                           <Typography variant="body2" fontWeight="bold">
+// //                             {label}
+// //                           </Typography>
+// //                         }
+// //                       />
+// //                       <Chip
+// //                         label={count}
+// //                         size="small"
+// //                         sx={{
+// //                           bgcolor: getColorForLabel(label) + '20',
+// //                           border: `1px solid ${getColorForLabel(label)}`,
+// //                         }}
+// //                       />
+// //                     </Box>
+// //                     {description && (
+// //                       <Typography variant="caption" sx={{ mt: 0.5, color: 'text.secondary' }}>
+// //                         {description}
+// //                       </Typography>
+// //                     )}
+// //                   </Box>
+// //                 );
+// //               })}
+// //             </FormGroup>
+// //           </Collapse>
+// //         </Paper>
+// //       )}
+
+// //       {/* Render the bounding boxes via portal */}
+// //       {renderBoundingBoxesPortal()}
+
+// //       {/* Error/Success Snackbar */}
+// //       <Snackbar
+// //         open={!!localError}
+// //         autoHideDuration={6000}
+// //         onClose={() => setLocalError(null)}
+// //         anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+// //       >
+// //         <Alert severity={localError?.severity || "error"} onClose={() => setLocalError(null)}>
+// //           {localError?.message || localError}
+// //         </Alert>
+// //       </Snackbar>
+// //     </>
+// //   );
+// // };
+
+// // export default PdfProcessingResults;

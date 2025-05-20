@@ -1,5 +1,6 @@
-// Updated BoundingBoxes component with debugging
-import React, { useEffect, useRef, useState } from 'react';
+
+// BoundingBoxes.jsx
+import React, { useState, useRef, useEffect } from 'react';
 
 /**
  * Component to render bounding boxes over a PDF
@@ -14,7 +15,7 @@ const BoundingBoxes = ({
   boxesData,
   transformCoord,
   colorMap = {},
-  showTooltips = true,
+  showTooltips = true
 }) => {
   // Create a ref for the container of all bounding boxes
   const boxesContainerRef = useRef(null);
@@ -39,7 +40,7 @@ const BoundingBoxes = ({
   
   // Log rendering for debugging
   console.log('Rendering BoundingBoxes with data for:', Object.keys(boxesData).join(', '));
-  
+
   return (
     <div 
       ref={boxesContainerRef}
@@ -77,14 +78,24 @@ const BoundingBoxes = ({
               const color = box.color || colorMap[queryLabel] || colorMap.default || 'rgba(255, 0, 0, 0.5)';
               
               // Apply the transformation to get pixel coordinates
+
+              const MIN_BOX_SIZE = 2;
+
               const style = transformCoord(coords, color);
-              
+              if (style.width < MIN_BOX_SIZE || style.height < MIN_BOX_SIZE) {
+                // Don't render
+                return null;
+              }              
               // Generate a unique key for this box
               const boxKey = `${queryLabel}-${index}`;
               const isHovered = hovered === boxKey;
               
+              // Determine if this is a table header box
+              const isTableHeader = !!box.table_title;
+              const boxClass = isTableHeader ? 'table-header-box' : 'query-box';
+              
               return (
-                <div key={boxKey} className={`box-container ${queryLabel}`}>
+                <div key={boxKey} className={`box-container ${queryLabel} ${boxClass}`}>
                   <div
                     style={{
                       ...style,
@@ -94,38 +105,37 @@ const BoundingBoxes = ({
                         : `${color.replace(')', ', 0.2)')}`,
                       pointerEvents: 'auto',
                       cursor: 'pointer',
+                      borderStyle: isTableHeader ? 'dashed' : 'solid'
                     }}
                     title={showTooltips ? `${queryLabel}: ${box.value || box.text || ''}` : ''}
                     onMouseEnter={() => setHovered(boxKey)}
                     onMouseLeave={() => setHovered(null)}
                     className="bounding-box"
                   >
-                    {/* Small label in top-left corner */}
-                    {/* <div
-                      style={{
-                        position: 'absolute',
-                        top: '-18px',
-                        left: '0',
-                        backgroundColor: color,
-                        color: 'white',
-                        padding: '1px 3px',
-                        fontSize: '10px',
-                        borderRadius: '2px',
-                        maxWidth: '120px',
-                        whiteSpace: 'nowrap',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        pointerEvents: 'none',
-                      }}
-                      className="box-label"
-                    > */}
-                      {/* {queryLabel} */}
-                      {/* {box.confidence && ` (${Math.round(box.confidence * 100)}%)`} */}
-                    {/* </div> */}
+                    {/* Optional mini-label for larger boxes */}
+                    {coords[3] - coords[1] > 20 && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          top: '2px',
+                          right: '2px',
+                          backgroundColor: color,
+                          color: 'white',
+                          padding: '1px 3px',
+                          fontSize: '8px',
+                          borderRadius: '2px',
+                          opacity: 0.9,
+                          pointerEvents: 'none',
+                        }}
+                        className="box-label"
+                      >
+                        {isTableHeader ? `Table ${box.table_index}` : queryLabel}
+                      </div>
+                    )}
                   </div>
                   
                   {/* Show tooltip on hover if enabled */}
-                  {showTooltips && (box.value || box.text) && isHovered && (
+                  {showTooltips && isHovered && (
                     <div 
                       style={{
                         position: 'absolute',
@@ -144,7 +154,22 @@ const BoundingBoxes = ({
                       }}
                       className="box-tooltip"
                     >
-                      {box.value || box.text}
+                      {isTableHeader ? (
+                        <>
+                          <strong>Table {box.table_index}</strong>
+                          <div>{box.table_title}</div>
+                          {box.columns && box.columns['0'] && (
+                            <div>
+                              <small>Columns: {box.columns['0'].join(', ')}</small>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <strong>{queryLabel}</strong>
+                          <div>{box.value || box.text}</div>
+                        </>
+                      )}
                     </div>
                   )}
                 </div>
