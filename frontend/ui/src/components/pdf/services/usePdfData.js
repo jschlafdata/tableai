@@ -50,20 +50,28 @@ export function usePdfData() {
       }
     }, []);
   
-    const handleRunVisionInference = useCallback(async ({ fileId, stage, classificationLabel }) => {
-      setVisionLoading(true);
-      setError(null);
-      try {
-        const results = await runVisionInference({ fileId, stage, classificationLabel });
-        setVisionResults(results);
-        return results;
-      } catch (err) {
-        setError(err.message);
-        throw err;
-      } finally {
-        setVisionLoading(false);
-      }
-    }, []);
+    const handleRunVisionInference = useCallback(
+      async ({ fileId, stage, classificationLabel, ...visionOptions }) => {
+        setVisionLoading(true);
+        setError(null);
+        try {
+          const results = await runVisionInference({
+            fileId,
+            stage,
+            classificationLabel,
+            visionOptions,
+          });
+          setVisionResults(results);
+          return results;
+        } catch (err) {
+          setError(err.message);
+          throw err;
+        } finally {
+          setVisionLoading(false);
+        }
+      },
+      []
+    );
 
   // Table header bounds detection (example)
   const handleProcessTableHeaders = useCallback(async ({ fileId, stage, classificationLabel }) => {

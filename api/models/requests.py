@@ -3,6 +3,25 @@ from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
 
 
+class VisionModelOptions(BaseModel):
+    temperature: Optional[int] = Field(None, description="Sampling temperature")
+    top_k: Optional[float] = Field(None, description="Top-K sampling parameter")
+    top: Optional[float] = Field(None, description="Top sampling parameter")
+    # Add additional option keys as needed
+
+class PdfVisionModelRequest(BaseModel):
+    file_id: str = Field(..., description="Unique file id for vision request")
+    stage: int = Field(0, description="Stage indicator for processing")
+    classification_label: str = Field(None, description="Current files classification label")
+    page_limit: int = Field(None, description="Max number of pages to process")
+    model_choice: Optional[str] = Field(None, description="Model selection")
+    options: Optional[VisionModelOptions] = Field(None, description="Model generation options")
+    zoom: Optional[float] = Field(None, description="Zoom factor for PDF processing")
+    max_attempts: Optional[int] = Field(None, description="Max retry attempts")
+    timeout: Optional[int] = Field(None, description="Timeout in seconds")
+    prompt: str = Field(..., description="Prompt paragraph for the model")
+
+
 class LLMTableStructureRequest(BaseModel):
     file_id: str
     stage: int
