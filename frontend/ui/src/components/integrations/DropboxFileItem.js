@@ -9,9 +9,9 @@ import FolderIcon from '@mui/icons-material/Folder'
 import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
-import Stage0StatusIcon from '../pdfs/Stage0StatusIcon'
-import formatBytes from '../../utils/bytes'
-import formatDate from '../../utils/dates'
+import Stage0StatusIcon from './Stage0StatusIcon'
+import formatBytes from './utils/bytes'
+import formatDate from './utils/dates'
 import styles from './DropboxCardListStyles'
 
 export default function DropboxFileItem({

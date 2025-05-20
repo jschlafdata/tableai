@@ -2,6 +2,11 @@
  * transformCoordWithContainer:
  * A function to compute bounding box coordinates based on the rendered PDF container.
  */
+
+// /components/TableHeaderBounds/useBoundingBoxesTransform
+
+import getPdfDimensions from '../utils/getPdfDimensions';
+
 export const transformCoordWithContainer = (
     coords,
     color,
@@ -45,25 +50,3 @@ export const transformCoordWithContainer = (
       opacity: 1
     };
   };
-  
-  function getPdfDimensions(tableHeaders, currentPage) {
-    // Try from pdf_metadata
-    if (tableHeaders?.pdf_metadata && tableHeaders.pdf_metadata[currentPage - 1]) {
-      return {
-        width: tableHeaders.pdf_metadata[currentPage - 1].width,
-        height: tableHeaders.pdf_metadata[currentPage - 1].height
-      };
-    }
-    // Or from the first page item meta
-    if (tableHeaders?.results?.pages) {
-      const pageIndex = String(currentPage - 1);
-      const pageItems = tableHeaders.results.pages[pageIndex];
-      if (pageItems && pageItems.length > 0 && pageItems[0].meta) {
-        return {
-          width: pageItems[0].meta.width,
-          height: pageItems[0].meta.height
-        };
-      }
-    }
-    return null;
-  }
