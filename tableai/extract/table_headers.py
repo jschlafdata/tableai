@@ -224,7 +224,7 @@ class TableHeaderExtractor:
         preceding_whitepace = {
             'pages': {'0': attach_preceding_whitespace(flat_list_values, hz_whitespace, whitespace_key="table_top_bounds")}
         }
-        return self.render_api(preceding_whitepace), table_y_metadata
+        return self.render_api(flat_list), table_y_metadata
 
     def render_api(self, flat_list):
 
