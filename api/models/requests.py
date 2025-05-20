@@ -8,9 +8,15 @@ class LLMTableStructureRequest(BaseModel):
     stage: int
     classification_label: str
 
-class PDFExtractRequest(BaseModel):
+class LLMInferenceResultRequest(BaseModel):
     file_id: str
     stage: int
+    classification_label: str
+    prompt_version: Optional[int] = None
+    prompt_name: Optional[str] = None
+
+class PDFExtractRequest(BaseModel):
+    file_id: str
 
 class DropboxSyncRequest(BaseModel):
     paths: List[str]
