@@ -21,16 +21,22 @@ export const processPdf = async ({ fileId }) =>
     body: JSON.stringify({ file_id: fileId }),
   }).then(handleResponse);
 
-export const runVisionInference = async ({ fileId, stage, classificationLabel }) =>
-  fetch(`${API_BASE}/tableai/extract/vision/structure`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ 
-      file_id: fileId, 
-      stage,
-      classification_label: classificationLabel
-    }),
-  }).then(handleResponse);
+  export const runVisionInference = async ({
+    fileId,
+    stage,
+    classificationLabel,
+    visionOptions // <--- add this
+  }) =>
+    fetch(`${API_BASE}/tableai/vision/find_table_columns`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_id: fileId,
+        stage,
+        classification_label: classificationLabel,
+        ...visionOptions // <-- merge the options in
+      }),
+    }).then(handleResponse);
 
 // Example: TableHeaderBounds endpoint
 export const fetchTableHeaders = async ({ fileId, stage, classificationLabel }) =>

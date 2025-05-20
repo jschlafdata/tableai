@@ -130,7 +130,7 @@ const PdfProcessingResults = ({
     }
   };
   
-  const onRunVisionInference = async () => {
+  const onRunVisionInference = async (visionOptions) => {
     if (!fileId || !hasClassification) {
       setLocalError("Cannot run vision inference - file must have a classification");
       return;
@@ -138,7 +138,9 @@ const PdfProcessingResults = ({
     try {
       await handleRunVisionInference({
         fileId,
-        classificationLabel: metadata.classification,
+        stage: effectiveStage,                   // from props or context
+        classificationLabel: metadata.classification, // from your file metadata
+        ...visionOptions                         // spread all the options from VisionInferenceOptions
       });
       setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
       await reloadMetadata();
