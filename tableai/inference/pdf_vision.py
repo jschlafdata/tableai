@@ -29,8 +29,9 @@ class VisionInferenceClient(Generic[OutputModelT]):
         page_limit: Optional[int] = None
     ):
         self.model_library = model_library or {
-            # 'mistralVL': ('mistral-small3.1:24b', 'ollama-medium-ollama.portal-ai.tools'),
-            'mistralVL': ('mistral-small3.1:24b-max-layers', 'ollama-embeddings-ollama.portal-ai.tools'),
+            'llava7b': ('llava:7b', 'ollama-embeddings-ollama.portal-ai.tools'),
+            'gemma3': ('gemma3:27b', 'ollama-embeddings-ollama.portal-ai.tools'),
+            'mistralVL': ('mistral-small3.1:24b-max-layers', 'ollama-medium-ollama.portal-ai.tools'),
             'llamaVL': ('llama3.2-vision', 'ollama-embeddings-ollama.portal-ai.tools')
         }
         self.model_choice = model_choice

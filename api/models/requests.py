@@ -13,7 +13,7 @@ class PdfVisionModelRequest(BaseModel):
     file_id: str = Field(..., description="Unique file id for vision request")
     stage: int = Field(0, description="Stage indicator for processing")
     classification_label: str = Field(None, description="Current files classification label")
-    page_limit: int = Field(None, description="Max number of pages to process")
+    page_limit: Optional[int] = Field(None, description="Max number of pages to process")
     model_choice: Optional[str] = Field(None, description="Model selection")
     options: Optional[VisionModelOptions] = Field(None, description="Model generation options")
     zoom: Optional[float] = Field(None, description="Zoom factor for PDF processing")

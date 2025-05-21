@@ -21,7 +21,7 @@ export const processPdf = async ({ fileId }) =>
     body: JSON.stringify({ file_id: fileId }),
   }).then(handleResponse);
 
-  export const runVisionInference = async ({
+export const runVisionInference = async ({
     fileId,
     stage,
     classificationLabel,
@@ -36,7 +36,7 @@ export const processPdf = async ({ fileId }) =>
         classification_label: classificationLabel,
         ...visionOptions // <-- merge the options in
       }),
-    }).then(handleResponse);
+  }).then(handleResponse);
 
 // Example: TableHeaderBounds endpoint
 export const fetchTableHeaders = async ({ fileId, stage, classificationLabel }) =>
