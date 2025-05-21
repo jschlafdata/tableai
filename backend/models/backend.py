@@ -1,47 +1,64 @@
-from sqlmodel import SQLModel, Field, create_engine, Session, select
+# backend/models/backend.py
+
+from sqlmodel import SQLModel, Field
 from datetime import datetime, timezone
-from pydantic import BaseModel
-from pydantic_settings import BaseSettings
-from typing import List, Optional
-from dataclasses import dataclass
+from typing import Optional
 
 
 class DropboxSyncRecord(SQLModel, table=True):
+    __tablename__ = "dropbox_sync_record"
+
     dropbox_id: str = Field(primary_key=True)
     dropbox_safe_id: str
     path_lower: str
     local_path: str
     size: int
     server_modified: datetime
-    synced_at: datetime =Field(default_factory=lambda: datetime.now(timezone.utc))
+    synced_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     metadata_json: str = Field(default="{}")
 
+
 class BadPDFSync(SQLModel, table=True):
-    __tablename__ = "badpdfsync"
+    __tablename__ = "bad_pdf_sync"
+
     file_id: str = Field(primary_key=True)
     error_message: str
 
+
 class DropboxSyncError(SQLModel, table=True):
+    __tablename__ = "dropbox_sync_error"
+
     file_id: str = Field(primary_key=True)
     error: str
     timestamp: datetime
 
+
 class PDFClassifications(SQLModel, table=True):
+    __tablename__ = "pdf_classifications"
+
     file_id: str = Field(primary_key=True)
     classification: str
 
+
 class ClassificationLabel(SQLModel, table=True):
+    __tablename__ = "classification_label"
+
     classification: str = Field(primary_key=True)
     label: str
 
+
 class FileExtractionResult(SQLModel, table=True):
+    __tablename__ = "file_extraction_result"
+
     file_id: str = Field(primary_key=True)
     classification_label: str
-    extracted_json: str  # Raw JSON string of the metadata
+    extracted_json: str
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class LLMInferenceTableStructures(SQLModel, table=True):
+    __tablename__ = "llm_inference_table_structures"
+
     run_uuid: str = Field(primary_key=True, nullable=False)
     uuid: str
     stage: int
@@ -54,6 +71,8 @@ class LLMInferenceTableStructures(SQLModel, table=True):
 
 
 class FileNodeRecord(SQLModel, table=True):
+    __tablename__ = "file_node_record"
+
     uuid: str = Field(primary_key=True)
     source: str
     source_id: str
@@ -67,7 +86,7 @@ class FileNodeRecord(SQLModel, table=True):
     file_type: str
     name: str
     auto_label: Optional[str] = ''
-    
+
     completed_stages_json: str = Field(default="{}")
     stage_paths_json: str = Field(default="{}")
     extraction_metadata_json: str = Field(default="{}")
@@ -83,8 +102,9 @@ class FileNodeRecord(SQLModel, table=True):
 MODEL_REGISTRY = {
     "BadPDFSync": BadPDFSync,
     "DropboxSyncRecord": DropboxSyncRecord,
-    "PDFClassifications": PDFClassifications, 
+    "PDFClassifications": PDFClassifications,
     "ClassificationLabel": ClassificationLabel,
     "FileExtractionResult": FileExtractionResult,
-    "FileNodeRecord": FileNodeRecord
+    "LLMInferenceTableStructures": LLMInferenceTableStructures,
+    "FileNodeRecord": FileNodeRecord,
 }

@@ -1,21 +1,36 @@
-from sqlmodel import SQLModel, Session, create_engine
-from typing import Type, Optional, Any, List
-from sqlalchemy import text
+# backend/database/sqllite_manager.py
 
-DATABASE_URL = "sqlite:///./dbx_sync_history.db"
+'''
+This now using the config.db_connection_url from the .env file, which may be a postgres url.
+'''
+
+from dotenv import load_dotenv
+import os
+from typing import Type, Optional, Any, List
+
+from sqlalchemy import text
+from sqlmodel import SQLModel, Session, create_engine
+
+from logger import logger
+
+load_dotenv()
+DATABASE_URL = os.environ["DB_CONNECTION_URL"]
+
+logger.info(f"DATABASE_URL: {DATABASE_URL}")
+
 engine = create_engine(
     DATABASE_URL,
     echo=False,
-    connect_args={"check_same_thread": False, "timeout": 30},
     future=True
 )
 
-# Enable WAL
-with engine.connect() as conn:
-    conn.execute(text("PRAGMA journal_mode=WAL"))
+# if you happen to still use SQLite, enable WAL; otherwise no-op
+if engine.url.drivername.startswith("sqlite"):
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA journal_mode=WAL"))
 
 class DBManager:
-    def __init__(self, engine):
+    def __init__(self, engine=engine):
         self.engine = engine
 
     def run_raw(self, query: str) -> List[dict]:
@@ -37,13 +52,13 @@ class DBManager:
                 session.add(instance)
                 session.commit()
                 return {"status": "inserted", "uuid": getattr(instance, "uuid", None)}
-            
+
             elif operation == "merge":
                 instance = data if isinstance(data, SQLModel) else model_cls(**data)
                 session.merge(instance)
                 session.commit()
                 return {"status": "merged", "uuid": getattr(instance, "uuid", None)}
-            
+
             elif operation == "merge_many":
                 if not isinstance(data, list):
                     raise ValueError("merge_many expects a list of model instances")
@@ -59,10 +74,9 @@ class DBManager:
                 deleted = query.delete()
                 session.commit()
                 return {"status": "deleted", "count": deleted}
-            
+
             elif operation == "get":
                 if columns:
-                    # Dynamically access columns from the model class
                     selected = [getattr(model_cls, col) for col in columns]
                     query = session.query(*selected)
                 else:
@@ -75,3 +89,10 @@ class DBManager:
 
             else:
                 raise ValueError(f"Unsupported DB operation: {operation}")
+
+def init_db():
+    """
+    Create all tables defined on SQLModel classes.
+    Call this at your app startup.
+    """
+    SQLModel.metadata.create_all(engine)

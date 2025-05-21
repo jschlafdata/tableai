@@ -16,6 +16,7 @@ class ServiceConfig(BaseSettings):
     dropbox_app_key: str
     dropbox_app_secret: str
     ollama_api_key: str
+    db_connection_url: str
     
     class Config:
         env_file = ".env"

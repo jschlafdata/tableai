@@ -1557,7 +1557,7 @@ class Stage3:
                 table_cells=[]
                 clean_tots_bounds=[]
                 totals_cells=[]
-                print(f"FAILED DATAFRAME: {self.node.stage_paths[3]["abs_path"]}")
+                print(f'FAILED DATAFRAME: {self.node.stage_paths[3]["abs_path"]}')
             
             try:
                 col_totals, table_values, table_frame_dict, data_types, sum_tests = TableBuilder.main(
