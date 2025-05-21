@@ -3,7 +3,26 @@ import base64
 import json
 import fitz  # PyMuPDF
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
+
+from typing import List, Dict, Optional
+from pydantic import BaseModel, Field, ValidationError, Extra
+
+class ColumnHeaderLevels(BaseModel):
+    level0: str
+    # Allow any level1, level2, ... keys, but only with string values
+    class Config:
+        extra = Extra.allow  # Accept dynamic levelN keys
+
+class TableMetadata(BaseModel):
+    table_index: int
+    title: Optional[str]  # Can be None
+    columns: List[str]
+    column_metadata: Optional[Dict[str, ColumnHeaderLevels]]
+
+class TableStructures(BaseModel):
+    number_of_tables: int
+    tables: List[TableMetadata]
 
 class VisionInferenceClient:
     def __init__(
@@ -15,6 +34,7 @@ class VisionInferenceClient:
         default_options: Optional[Dict[str, Any]] = None,
         default_format: str = "json",
         stream: bool = False,
+        page_limit: int = None
     ):
         """
         Initialize the VisionInferenceClient.
@@ -38,6 +58,7 @@ class VisionInferenceClient:
         self.default_options = default_options or {"temperature": 0, "top_k": 1, "top_p": 1}
         self.default_format = default_format
         self.stream = stream
+        self.page_limit = page_limit
 
     @staticmethod
     def convert_pdf_page_to_base64(page, zoom=2.0):
@@ -65,8 +86,9 @@ class VisionInferenceClient:
         format: Optional[str] = None,
         stream: Optional[bool] = None,
         verbose: bool = False,
-    ) -> dict:
-        """Run vision inference on a single PDF page."""
+        max_attempts: int = 2,
+        timeout: int = 166
+    ) -> Optional[dict]:
         model_name, model_endpoint = self.get_model_and_endpoint(model_choice)
         user = username or self.username
         pw = password or self.password
@@ -80,13 +102,33 @@ class VisionInferenceClient:
             "options": options or self.default_options
         }
         url = f'https://{model_endpoint}/api/generate'
+
+        last_error = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                if verbose:
+                    print(f"Attempt {attempt}: POST {url} | Model: {model_name}")
+                resp = requests.post(url, json=payload, auth=(user, pw) if user and pw else None, timeout=timeout)
+                resp.raise_for_status()
+                resp_data = resp.json()
+                # Try parsing JSON response
+                response_obj = json.loads(resp_data['response'])
+                # Validate with Pydantic
+                try:
+                    TableStructures.parse_obj(response_obj)
+                except ValidationError as e:
+                    if verbose:
+                        print(f"[ERROR] LLM output failed schema validation:\n{e}")
+                    return None  # or, optionally, re-ask the LLM or clean the output
+                return response_obj  # Only returns if schema is valid!
+            except (requests.RequestException, json.JSONDecodeError, KeyError) as e:
+                last_error = e
+                if verbose:
+                    print(f"[WARN] Inference failed (attempt {attempt}): {e}")
+                time.sleep(0.5)
         if verbose:
-            print(f"POST {url} | Model: {model_name}")
-        resp = requests.post(url, json=payload, auth=(user, pw) if user and pw else None)
-        resp.raise_for_status()
-        resp_data = resp.json()
-        # The actual response format might differ depending on model endpoint
-        return json.loads(resp_data['response'])
+            print(f"[ERROR] All attempts failed for inference.")
+        return None
 
     def process_pdf(
         self,
@@ -114,25 +156,28 @@ class VisionInferenceClient:
             print(f"Processing {len(doc)} pages from {pdf_path}")
 
         for i, page in enumerate(doc):
-            start_time = time.time()
-            result = self.infer_page(
-                prompt=prompt,
-                page=page,
-                model_choice=model_choice,
-                username=username,
-                password=password,
-                options=options,
-                zoom=zoom,
-                format=format,
-                stream=stream,
-                verbose=verbose,
-            )
-            elapsed = time.time() - start_time
-            timings.append({"page": i, "time_seconds": elapsed})
-            results.append(result)
-            if verbose:
-                print(f"Page {i+1}/{len(doc)} processed in {elapsed:.2f} seconds")
-        
+            if self.page_limit and i >= self.page_limit:
+                break
+            else:
+                start_time = time.time()
+                result = self.infer_page(
+                    prompt=prompt,
+                    page=page,
+                    model_choice=model_choice,
+                    username=username,
+                    password=password,
+                    options=options,
+                    zoom=zoom,
+                    format=format,
+                    stream=stream,
+                    verbose=verbose,
+                )
+                elapsed = time.time() - start_time
+                timings.append({"page": i, "time_seconds": elapsed})
+                results.append(result)
+                if verbose:
+                    print(f"Page {i+1}/{len(doc)} processed in {elapsed:.2f} seconds")
+            
         # Print summary
         if verbose and timings:
             total = sum(x["time_seconds"] for x in timings)

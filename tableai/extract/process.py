@@ -17,7 +17,13 @@ from tableai.data_loaders.files import FileReader
 
 ### FROM ORIGINAL DEPLOYMENT ###
 from tableai.extract.stages import Stage1, Stage2, Stage3
+from tableai.extract.helpers import Stitch
 
+import os
+import fitz
+import shutil
+import tempfile
+from typing import Dict, Any, List
 
 class DropboxRegisterService:
 
@@ -123,75 +129,11 @@ class DropboxRegisterService:
         # Return either a single node (if requested by file_id) or the list
         return single_synced_node if single_synced_node else synced_nodes
 
-    def process(self, file_id=None, file_node=None):
-        base_pipeline_conf, tables_search_config = None, None
+    def get_node(self, file_id=None, file_node=None):
         if file_id:
             file_node = self._file_node_get(file_id)
             directory_file_node = DirectoryFileNode.from_record(file_node)
-            if directory_file_node:
-                node_label = self._get_node_label(directory_file_node)
-                print(f"node_label: {node_label}")
-                if node_label:
-                    base_pipeline_conf, tables_search_config = self._get_node_mappings(node_label)
-                    stage1_configs = base_pipeline_conf.get('extract', {}).get('stage1', {})
-                if tables_search_config and stage1_configs:
-                    directory_file_node.add_stage(1)
-                    extractor = Stage1(
-                        directory_file_node=directory_file_node,
-                        tables_search_config=tables_search_config,
-                        header_bound=stage1_configs.get('header_bound', 100),
-                        footer_bound=stage1_configs.get('footer_bound', 100),
-                        min_occurrences=stage1_configs.get('min_occurrences', 2),
-                    )
-                    stage1_metadata = extractor.run()
-                    directory_file_node.store_metadata(1, stage1_metadata)
-
-                    # directory_file_node.current_stage = 2
-                    # directory_file_node.add_stage(2)
-
-                    # extractor = Stage2(
-                    #     directory_file_node, 
-                    #     parameters=base_pipeline_conf, 
-                    #     merge=True,
-                    #     classification=node_label,
-                    #     table_key_dict=tables_search_config
-                    # )
-                    # grouped_tables, inverse_tbl_bounds, occupied_bounds, table_key_dict, page_width, page_height, merged_tables, white_space_blocks, table_dict = extractor.run()
-                    # stage2_meta = {
-                    #     'page_width': page_width, 
-                    #     'page_height': page_height, 
-                    #     'tables': grouped_tables, 
-                    #     'inverse_tbl_bounds': inverse_tbl_bounds, 
-                    #     'occupied_bounds': occupied_bounds, 
-                    #     'table_key_dict': table_key_dict,
-                    #     'merged_tables': merged_tables, 
-                    #     'whitespace_blocks': white_space_blocks
-                    # }
-                    # directory_file_node.store_metadata(2, stage2_meta)
-
-                    # directory_file_node.current_stage = 3
-                    # directory_file_node.add_stage(3)
-                    # extractor = Stage3(
-                    #     directory_file_node, 
-                    #     table_key_dict=tables_search_config,
-                    #     parameters=base_pipeline_conf, 
-                    #     merge=True,
-                    #     classification=node_label
-                    # )
-                    # stage3_meta = extractor.process()
-                    # directory_file_node.store_metadata(3, stage3_meta)
-                    # print(f"Storing extraction meta for node: {directory_file_node.uuid}")
-                    # self.instance.run_op(
-                    #     FileExtractionResult,
-                    #     operation="merge",
-                    #     data={
-                    #         "file_id": file_id,
-                    #         "classification_label": node_label,
-                    #         "extracted_json": json.dumps(directory_file_node.to_dict(), default=str)
-                    #     }
-                    # )
-                    return directory_file_node.to_dict()
-        return {}
+            return directory_file_node
 
     def _get_node_mappings(self, node_label):
         try:
@@ -213,7 +155,6 @@ class DropboxRegisterService:
         try:
             classification_maps = self._get_classification_maps()
             meta_tag = directory_file_node.extraction_metadata.get('stage0', {}).get('meta_tag')
-            print(f"meta_tag: {meta_tag}")
             auto_label = directory_file_node.auto_label
             node_label = classification_maps.get(meta_tag, None)
             if auto_label:

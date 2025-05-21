@@ -36,6 +36,7 @@ from api.tasks.on_start import PreHooks
 from api.tableai import extract
 from api.tableai import frontend
 from api.database import run_queries
+from api.routes.inference import vision
 
 ### ------------------- ###
 
@@ -69,6 +70,7 @@ app.include_router(run_queries.router, prefix="/query")
 app.include_router(extract.router, prefix="/tableai/extract")
 app.include_router(frontend.router, prefix="/ui")
 app.include_router(dropbox.router, prefix="/dropbox")
+app.include_router(vision.router, prefix="/tableai/vision")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

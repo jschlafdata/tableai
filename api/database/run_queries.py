@@ -86,6 +86,12 @@ async def get_file_node_records(db):
     else:
         return {}
 
+@router.get("/classify/existing_labels")
+async def run_extraction(
+    api_service: 'APIService' = Depends(ensure_initialized)
+): 
+    records = api_service.db.run_op(ClassificationLabel, operation="get")
+    return records
 
 @router.get("/classify/labels")
 async def run_extraction(

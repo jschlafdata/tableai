@@ -64,7 +64,7 @@ class LLMInferenceTableStructures(SQLModel, table=True):
     stage: int
     classification_label: str
     prompt: str
-    prompt_version: Optional[int] = None
+    prompt_version: int = None 
     prompt_name: str = ''
     response: str = Field(default="{}")
     created_at: Optional[datetime] = Field(default_factory=lambda: datetime.now(timezone.utc))

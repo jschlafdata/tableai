@@ -9,6 +9,7 @@ from tableai.data_loaders.files import FileReader
 import os
 import shutil
 import tempfile
+from typing import Dict, Any, List
 
 class Detect:
     @staticmethod
@@ -339,6 +340,18 @@ class Map:
         return True
 
     @staticmethod
+    def bbox_overlaps(bbox1, bbox2):
+        """
+        Returns True if bbox1 overlaps bbox2.
+        bbox = (x0, y0, x1, y1)
+        """
+        if not bbox1 or not bbox2:
+            return False
+        x0a, y0a, x1a, y1a = bbox1
+        x0b, y0b, x1b, y1b = bbox2
+        return not (x1a <= x0b or x1b <= x0a or y1a <= y0b or y1b <= y0a)
+
+    @staticmethod
     def is_x_overlapping(boxA, boxB):
         """
         Return True if the horizontal (x-axis) bounds of boxA and boxB overlap.
@@ -395,6 +408,23 @@ class Map:
         )
         
         return merged_box
+    
+    @staticmethod
+    def is_fully_contained(inner, outer) -> bool:
+        """
+        Returns True if the `inner` box is fully contained within the `outer` box.
+
+        Boxes are in (x0, y0, x1, y1) format.
+        """
+        x0_i, y0_i, x1_i, y1_i = inner
+        x0_o, y0_o, x1_o, y1_o = outer
+
+        return (
+            x0_i >= x0_o and
+            y0_i >= y0_o and
+            x1_i <= x1_o and
+            y1_i <= y1_o
+        )
 
     @staticmethod
     def percent_contained(inner, outer) -> float:
@@ -446,222 +476,119 @@ class Map:
             if not has_merged:
                 merged.append(box)
         return merged
-
+    
     @staticmethod
-    def consolidate_matches(matches):
+    def translate_bbox_to_virtual_page(bbox, page_num, pdf_metadata):
         """
-        Takes a list of lists of bounding boxes, e.g.:
-            [ [ (x0,y0,x1,y1), ... ], [ ... ], ... ]
-        and returns a list of single bounding boxes,
-        where each bounding box encloses all of the boxes in that match.
-        """
-        consolidated = []
-        for match in matches:
-            xs0 = [b[0] for b in match]
-            ys0 = [b[1] for b in match]
-            xs1 = [b[2] for b in match]
-            ys1 = [b[3] for b in match]
-
-            consolidated.append((
-                min(xs0), 
-                min(ys0),
-                max(xs1), 
-                max(ys1)
-            ))
-        return consolidated
-
-    @staticmethod
-    def find_full_width_whitespace(pdf_path, page_number=0, min_height=20, include_images=True, include_drawings=True):
-        """
-        Identify all vertical 'full-width' whitespace bands on a single PDF page,
-        each of which is at least `min_height` tall.
-
-        Returns:
-            A list of lists [x0, y0, x1, y1], each spanning the entire page width
-            (from x=0 to x=page_width) and representing a whitespace region 
-            with height >= min_height.
+        Translate a bbox from its original page coords to a single virtual page.
 
         Args:
-            pdf_path (str) : Path to the PDF file.
-            page_number (int): 0-based index of the page to analyze.
-            min_height (float): Minimum height (in PDF points) to qualify 
-                                as an empty 'band' of whitespace.
-            include_images (bool): Whether to consider images as occupied space.
-            include_drawings (bool): Whether to consider drawings as occupied space.
+            bbox: (x0, y0, x1, y1) for the given page
+            page_num: which page this bbox is from (int)
+            pdf_metadata: dict like {page_num: {'width': ..., 'height': ...}, ...}
+        
+        Returns:
+            (x0_new, y0_new, x1_new, y1_new) on the single virtual page
         """
-        doc = fitz.open(pdf_path)
-        page = doc.load_page(page_number)
-        page_rect = page.rect  # full page rectangle
-        page_width = page_rect.width
-        page_height = page_rect.height
+        # Stack pages vertically; y offset is the sum of all previous page heights
+        y_offset = sum(pdf_metadata[p]['height'] for p in range(page_num))
+        x0, y0, x1, y1 = bbox
+        return (x0, y0 + y_offset, x1, y1 + y_offset)
 
-        # -------------------------------------------------------------------
-        # 1) Collect bounding boxes from text, images, and drawn objects
-        # -------------------------------------------------------------------
-        occupied_intervals = []
+    @staticmethod
+    def get_virtual_page_size(pdf_metadata):
+        """
+        Return (width, height) of the combined virtual page.
+        Assumes all pages are the same width (common in PDFs).
+        """
+        total_height = sum(m['height'] for m in pdf_metadata.values())
+        first_page = min(pdf_metadata.keys())
+        width = pdf_metadata[first_page]['width']
+        return (width, total_height)
 
-        # (a) Text blocks
-        text_blocks = page.get_text("blocks")
-        # Each block is of the form: (x0, y0, x1, y1, text, block_type, ...)
-        # We only need the coordinates:
-        for blk in text_blocks:
-            x0, y0, x1, y1 = blk[0], blk[1], blk[2], blk[3]
-            # If the block has some visible height
-            if y1 > y0:
-                # Ensure all y values are within page boundaries
-                y0 = max(0, min(y0, page_height))
-                y1 = max(0, min(y1, page_height))
-                occupied_intervals.append((y0, y1))
-
-        # (b) Images (if enabled)
-        if include_images:
-            for img_info in page.get_images(full=True):
-                if "bbox" in img_info:
-                    bbox = img_info["bbox"]
-                    # Ensure all y values are within page boundaries
-                    y0 = max(0, min(bbox.y0, page_height))
-                    y1 = max(0, min(bbox.y1, page_height))
-                    if y1 > y0:
-                        occupied_intervals.append((y0, y1))
-                else:
-                    # Skip images with no bounding box information
-                    pass
-
-        # (c) Drawing objects (lines, shapes, etc.) - if enabled
-        if include_drawings:
-            for drawing_cmd in page.get_drawings():
-                r = drawing_cmd["rect"]  # bounding box as fitz.Rect
-                # Ensure all y values are within page boundaries
-                y0 = max(0, min(r.y0, page_height))
-                y1 = max(0, min(r.y1, page_height))
-                # only add if it has nonzero height
-                if y1 > y0:
-                    occupied_intervals.append((y0, y1))
-
-        # Close the source doc if we're done
-        doc.close()
-
-        # -------------------------------------------------------------------
-        # 2) Merge the vertical intervals to get total occupied coverage
-        # -------------------------------------------------------------------
-        if not occupied_intervals:
-            # If there's no content, the entire page is whitespace
+    @staticmethod
+    def create_inverse_blocks(page_width, page_height, recurring_blocks):
+        """
+        Returns the inverse of recurring blocks for a single page.
+        The result is a list of blocks covering all vertical space *not* in any recurring block.
+        
+        Args:
+            page_width (float): Width of the page
+            page_height (float): Height of the page
+            recurring_blocks (list): List of blocks [x0, y0, x1, y1]
+        
+        Returns:
+            list: Inverse blocks as [x0, y0, x1, y1]
+        """
+        if not recurring_blocks:
+            # No recurring blocks? The whole page is inverse!
             return [[0, 0, page_width, page_height]]
-
-        # Sort intervals by their starting y
-        occupied_intervals.sort(key=lambda iv: iv[0])
-        merged = []
-        current_start, current_end = occupied_intervals[0]
-
-        for i in range(1, len(occupied_intervals)):
-            iv_start, iv_end = occupied_intervals[i]
-            if iv_start <= current_end:
-                # Overlaps or touches - merge them
-                current_end = max(current_end, iv_end)
-            else:
-                # No overlap, push the previous interval, start a new one
-                merged.append((current_start, current_end))
-                current_start, current_end = iv_start, iv_end
-
-        # Add the last interval
-        merged.append((current_start, current_end))
-
-        # -------------------------------------------------------------------
-        # 3) Compute the complement: the "empty" intervals in [0, page_height]
-        # -------------------------------------------------------------------
-        whitespace_coords = []
-
-        # Gap before the first occupied interval
-        if merged[0][0] > 0:
-            gap_start = 0
-            gap_end = merged[0][0]
-            gap_height = gap_end - gap_start
-            if gap_height >= min_height:
-                whitespace_coords.append([0, gap_start, page_width, gap_end])
-
-        # Gaps between merged intervals
-        for i in range(len(merged) - 1):
-            current_end_y = merged[i][1]
-            next_start_y = merged[i+1][0]
-            gap_height = next_start_y - current_end_y
-            if gap_height >= min_height:
-                whitespace_coords.append([0, current_end_y, page_width, next_start_y])
-
-        # Gap after the last interval
-        if merged[-1][1] < page_height:
-            gap_start = merged[-1][1]
-            gap_end = page_height
-            gap_height = gap_end - gap_start
-            if gap_height >= min_height:
-                whitespace_coords.append([0, gap_start, page_width, gap_end])
-
-        # Debug: check for any negative values
-        for i, coords in enumerate(whitespace_coords):
-            for j, value in enumerate(coords):
-                if value < 0:
-                    print(f"Warning: Negative value {value} at whitespace_coords[{i}][{j}]")
-                    # Force to be non-negative
-                    whitespace_coords[i][j] = 0
-
-        return whitespace_coords
-
-    @staticmethod
-    def create_inverse_recurring_blocks(page_height, page_width, page_breaks, recurring_blocks):
-        """
-        Creates inverse recurring blocks (areas outside of headers and footers)
         
-        Args:
-            page_height (float): Total height of the combined PDF pages
-            page_width (float): Width of the PDF page
-            page_breaks (list): Array of y-coordinates where pages break
-            recurring_blocks (list): Array of recurring blocks [page_idx, y1, x2, y2]
-            
-        Returns:
-            list: Array of inverse blocks [page_idx, y1, x2, y2]
-        """
-        # Sort recurring blocks by y1 coordinate
-        recurring_blocks.sort(key=lambda block: block[1])
-        
-        # Initialize inverse blocks array
+        # Sort by y0 (top of block)
+        recurring_blocks = sorted(recurring_blocks, key=lambda block: block[1])
         inverse_blocks = []
         
-        # For each page break, find the blocks that belong to that page
-        for i in range(len(page_breaks)):
-            page_start = page_breaks[i]
-            page_end = page_breaks[i + 1] if i < len(page_breaks) - 1 else page_height
-            
-            # Find all recurring blocks on this page
-            blocks_on_page = [block for block in recurring_blocks 
-                            if block[1] >= page_start and block[2] <= page_end]
-            
-            # If no blocks on this page, the entire page is an inverse block
-            if not blocks_on_page:
-                inverse_blocks.append([0, page_start, page_width, page_end])
-                continue
-            
-            # Sort blocks on this page by y1 coordinate
-            blocks_on_page.sort(key=lambda block: block[1])
-            
-            # Add inverse block from page start to first recurring block
-            if blocks_on_page[0][1] > page_start:
-                inverse_blocks.append([0, page_start, page_width, blocks_on_page[0][1]])
-            
-            # Add inverse blocks between recurring blocks
-            for j in range(len(blocks_on_page) - 1):
-                current_block = blocks_on_page[j]
-                next_block = blocks_on_page[j + 1]
-                
-                if current_block[3] < next_block[1]:
-                    inverse_blocks.append([0, current_block[3], page_width, next_block[1]])
-            
-            # Add inverse block from last recurring block to page end
-            last_block = blocks_on_page[-1]
-            if last_block[3] < page_end:
-                inverse_blocks.append([0, last_block[3], page_width, page_end])
+        # 1. From top of page to first block
+        first = recurring_blocks[0]
+        if first[1] > 0:
+            inverse_blocks.append([0, 0, page_width, first[1]])
+        
+        # 2. Between blocks
+        for i in range(len(recurring_blocks) - 1):
+            curr = recurring_blocks[i]
+            nxt = recurring_blocks[i + 1]
+            if curr[3] < nxt[1]:  # Only if there is a gap
+                inverse_blocks.append([0, curr[3], page_width, nxt[1]])
+        
+        # 3. From last block to bottom of page
+        last = recurring_blocks[-1]
+        if last[3] < page_height:
+            inverse_blocks.append([0, last[3], page_width, page_height])
         
         return inverse_blocks
 
+
 class Stitch:
+
+    @staticmethod
+    def combine_pages_into_one(src_doc, node):
+        """
+        Combines all pages of input_pdf_path into one tall PDF,
+        then extracts recurring text blocks (keeping only top/bottom strips).
+        Returns a metadata dict.
+        """
+        print(f"COMBINGING PAGES INTO ONE!!")
+        combined_doc = fitz.open()
+        original_page_count = len(src_doc)
+        total_height = 0
+        max_width = 0
+        page_heights = []  # each page's height in the original doc
+        for page_index in range(original_page_count):
+            page = src_doc[page_index]
+            width, height = page.rect.width, page.rect.height
+            page_heights.append(height)
+            total_height += height
+            max_width = max(max_width, width)
+
+        combined_page = combined_doc.new_page(width=max_width, height=total_height)
+
+        page_breaks = []
+        current_y = 0.0
+
+        # Place each original page
+        for page_index in range(original_page_count):
+            page_breaks.append(current_y)
+            page = src_doc[page_index]
+            width, height = page.rect.width, page.rect.height
+
+            target_rect = fitz.Rect(0, current_y, width, current_y + height)
+            combined_page.show_pdf_page(target_rect, src_doc, page_index)
+            current_y += height
+
+        
+        combined_doc.save(node.stage_paths[1]["abs_path"])
+        combined_doc.close()
+        src_doc.close()
 
     @staticmethod
     def clip_and_place_pdf_regions(
@@ -672,59 +599,32 @@ class Stitch:
         page_width=None,
         page_height=None,
         margin=20,
-        gap=10,
+        gap=25,
         center_horizontally=True
     ):
         """
         Clips specified regions from a PDF page and places them in a new PDF according to the specified layout.
-        
-        Args:
-            input_pdf_path (str): Path to the source PDF
-            regions (list): List of region dictionaries with format:
-                        [{'rect': [x0, y0, x1, y1], 'type': 'optional_label'}, ...]
-            output_pdf_path (str, optional): Path where the output PDF will be saved. If None, doesn't save.
-            source_page_number (int): Page number in the source PDF to extract from (default: 0)
-            layout (str): 'vertical' (stack regions vertically) or 'custom' (use provided page dimensions)
-            page_width (int): Width of output page (required for 'custom' layout, auto-calculated for 'vertical')
-            page_height (int): Height of output page (required for 'custom' layout, auto-calculated for 'vertical')
-            margin (int): Margin around the content (default: 20 points)
-            gap (int): Gap between regions when stacking vertically (default: 10 points)
-            center_horizontally (bool): Whether to center regions horizontally (default: True)
-        
+        Expects regions as a list of (x0, y0, x1, y1) tuples/lists.
+
         Returns:
-            tuple: (placement_metadata, document_object) - Metadata about placements and the created document
+            tuple: (placement_metadata, document_object)
         """
         if not regions:
             print("No regions provided.")
             return None, None
-        
+
         # Convert regions to fitz.Rect objects
-        region_rects = []
-        for r in regions:
-            if isinstance(r, dict) and 'rect' in r:
-                rect_data = r['rect']
-                if isinstance(rect_data, (list, tuple)):
-                    region_rects.append(fitz.Rect(*rect_data))
-                elif isinstance(rect_data, fitz.Rect):
-                    region_rects.append(rect_data)
-            elif isinstance(r, (list, tuple)) and len(r) == 4:
-                region_rects.append(fitz.Rect(*r))
-            elif isinstance(r, fitz.Rect):
-                region_rects.append(r)
-            else:
-                raise ValueError(f"Unsupported region format: {r}")
-        
+        region_rects = [fitz.Rect(*r['bbox']) for r in regions]
+
         # Create new PDF document
         new_doc = fitz.open()
-        
+
         # Calculate page dimensions based on layout
         if layout == 'vertical':
             max_width = max(r.width for r in region_rects)
             total_height = sum(r.height for r in region_rects)
             if len(region_rects) > 1:
                 total_height += gap * (len(region_rects) - 1)
-            
-            # Add margins to page dimensions, not to content placement
             page_width = max_width + (2 * margin if margin > 0 else 0)
             page_height = total_height + (2 * margin if margin > 0 else 0)
         elif layout == 'custom':
@@ -732,89 +632,144 @@ class Stitch:
                 raise ValueError("Custom layout requires specifying page_width and page_height")
         else:
             raise ValueError("Unsupported layout type. Use 'vertical' or 'custom'")
-        
+
         # Create the output page
         new_page = new_doc.new_page(width=page_width, height=page_height)
-        
+
         # Initial y position includes margin
         y_cursor = margin
-        
+
         placement_metadata = {
             "page_width": page_width,
             "page_height": page_height,
             "placed_items": []
         }
-        
+
         # Process each region
         for i, rect in enumerate(region_rects):
-            region = regions[i] if i < len(regions) and isinstance(regions[i], dict) else {"type": f"region_{i}"}
-            
             # Create temporary copy of input PDF
             tmp_pdf_path = tempfile.mktemp(suffix=".pdf")
             shutil.copy(input_pdf_path, tmp_pdf_path)
             tmp_doc = fitz.open(tmp_pdf_path)
             tmp_page = tmp_doc.load_page(source_page_number)
             page_rect = tmp_page.rect
-            
-            # Redact everything outside the target region
+
             x0, y0, x1, y1 = rect
-            
-            # Top area
+
+            # Redact everything outside the target region
             if y0 > page_rect.y0:
                 tmp_page.add_redact_annot(fitz.Rect(page_rect.x0, page_rect.y0, page_rect.x1, y0), fill=(1, 1, 1))
-            # Bottom area
             if y1 < page_rect.y1:
                 tmp_page.add_redact_annot(fitz.Rect(page_rect.x0, y1, page_rect.x1, page_rect.y1), fill=(1, 1, 1))
-            # Left area
             if x0 > page_rect.x0:
                 tmp_page.add_redact_annot(fitz.Rect(page_rect.x0, y0, x0, y1), fill=(1, 1, 1))
-            # Right area
             if x1 < page_rect.x1:
                 tmp_page.add_redact_annot(fitz.Rect(x1, y0, page_rect.x1, y1), fill=(1, 1, 1))
-            
-            # Apply redactions
+
             tmp_page.apply_redactions(images=True, graphics=True, text=True)
-            
-            # Determine placement in the output
+
             block_width, block_height = rect.width, rect.height
-            
+
             # Calculate x position (centered or not)
             if center_horizontally:
                 dest_x0 = (page_width - block_width) / 2
             else:
                 dest_x0 = margin
-                
+
             dest_y0 = y_cursor
-            
-            # Create a precise destination rectangle with exact dimensions
             dest_rect = fitz.Rect(dest_x0, dest_y0, dest_x0 + block_width, dest_y0 + block_height)
-            
-            # Add to output page with exact clipping
+
+            # Place region onto output page
             new_page.show_pdf_page(
                 dest_rect,
                 tmp_doc,
                 source_page_number,
                 clip=rect
             )
-            
-            # Store metadata about this placement
+
             placement_metadata["placed_items"].append({
-                "type": region.get("type", f"region_{i}"),
                 "original_rect": [x0, y0, x1, y1],
                 "placed_rect": [dest_x0, dest_y0, dest_x0 + block_width, dest_y0 + block_height],
                 "source_page": source_page_number
             })
-            
-            # Update cursor for next placement if using vertical layout
+
             if layout == 'vertical':
                 y_cursor += block_height + gap
-                
-            # Clean up temporary file
+
             tmp_doc.close()
             os.remove(tmp_pdf_path)
-        
-        return placement_metadata, new_doc
-    
+
+        return new_doc
+
+    @staticmethod
+    def redact_pdf_regions(
+        input_doc: fitz.Document,
+        redaction_dict: Dict[str, List[Dict[str, Any]]]
+    ) -> fitz.Document:
+        """
+        Redact specified regions in a PDF.
+
+        Args:
+            input_doc (fitz.Document): Source PDF document.
+            redaction_dict (dict): {
+                page_index (str or int): [
+                    {"bbox": [x0, y0, x1, y1], ...}, ...
+                ], ...
+            }
+
+        Returns:
+            fitz.Document: In-memory redacted PDF document.
+        """
+        # 1. Save a temp copy of input PDF to disk
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_source:
+            input_doc.save(temp_source.name)
+            temp_source_path = temp_source.name
+
+        # 2. Open the temp copy
+        src_doc = fitz.open(temp_source_path)
+
+        # 3. Save another temp path for the redacted output
+        with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_output:
+            temp_output_path = temp_output.name
+
+        # 4. Copy the source doc to output temp path (so we can edit in-place)
+        shutil.copy(temp_source_path, temp_output_path)
+
+        # 5. Open as output doc for redaction
+        out_doc = fitz.open(temp_output_path)
+
+        # 6. Iterate and redact
+        for page_idx_str, regions in redaction_dict.items():
+            try:
+                page_idx = int(page_idx_str)
+            except Exception:
+                continue  # skip bad keys
+
+            page = out_doc[page_idx]
+
+            for region in regions:
+                bbox = region.get('bbox')
+                if not bbox or len(bbox) != 4:
+                    continue
+                x0, y0, x1, y1 = bbox
+                rect = fitz.Rect(x0, y0, x1, y1)
+                # Add redaction annotation
+                page.add_redact_annot(rect, fill=(1, 1, 1))  # White fill (can be black if desired)
+
+            # Apply all redactions on this page
+            page.apply_redactions(images=True, graphics=True, text=True)
+
+        # 7. Save to in-memory buffer, reload as fitz.Document, cleanup temp files
+        pdf_bytes = out_doc.tobytes()
+        out_doc.close()
+        src_doc.close()
+        try:
+            os.remove(temp_source_path)
+            os.remove(temp_output_path)
+        except Exception:
+            pass
+
+        return fitz.open("pdf", pdf_bytes)
 
 class Bounds:
     @staticmethod
