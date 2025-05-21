@@ -11,6 +11,7 @@ from typing import List, Any, Dict, Union
 import uuid
 from pathlib import Path
 from pydantic import BaseModel
+from collections import defaultdict
 
 ### Application imports ###
 from api.service.dependencies import ensure_initialized
@@ -34,6 +35,11 @@ from api.models.requests import (
     LLMInferenceResultRequest
 )
 
+from tableai.extract.index_search import (
+     FitzTextIndex, 
+     LineTextIndex
+)
+
 from tableai.inference.prompts.table_structure import (
     TABLE_STRUCTURE_PROMPT,
     TABLE_STRUCTURE_PROMPT_V2,
@@ -42,6 +48,7 @@ from tableai.inference.prompts.table_structure import (
     TABLE_STRUCTURE_PROMPT_V5
 )
 from tableai.inference.vision_call import VisionInferenceClient
+from tableai.extract.helpers import Stitch
 
 ### ------------------ ###
 
@@ -63,16 +70,15 @@ from api.models.requests import (
     VisionModelOptions
 )
 
-class ColumnHierarchy(BaseModel):
-    level0: str
-    # Accept arbitrary additional sub-levels (Pydantic v2 style)
-    model_config = {"extra": "allow"}
+from tableai.extract.table_headers import TableHeaderExtractor
+
+class TableColumnsEntry(BaseModel):
+    headers_hierarchy: bool
+    columns: List[str]
 
 class TableCountWithColumnsDict(BaseModel):
     number_of_tables: int
-    headers_heirarchy: bool
-    columns: Dict[str, List[Union[str, dict]]]
-
+    tables: Dict[str, TableColumnsEntry]
 
 @router.post("/find_table_columns")
 def get_extraction(
@@ -82,12 +88,14 @@ def get_extraction(
 ):
     db = api_service.db
     node = db.run_op(FileNodeRecord, "get", filter_by={'uuid': req.file_id})
+    register_service = DropboxRegisterService(db)
     if node:
         node_stage_paths = json.loads(node[0].stage_paths_json)
-        abs_path = node_stage_paths.get(str(req.stage), {}).get('abs_path', None)
+        abs_path = node_stage_paths.get(str(0), {}).get('abs_path', None)
         if abs_path:
             pdf_model = PDFModel(path=Path(abs_path), source=Source.LOCAL)
-            pdf_model.set_limit(req.page_limit)
+            if req.page_limit:
+                pdf_model.set_limit(req.page_limit)
 
             # Use the received request model directly
             client = VisionInferenceClient(
@@ -95,49 +103,106 @@ def get_extraction(
                 password=api_service.service_config.ollama_api_key,
             )
             results = client.process_pdf(req, pdf_model, TableCountWithColumnsDict)
-            return results
+            if results:
+                result_dict = [res.dict() for res in results if res.dict()]
+                abs_path_3 = node_stage_paths.get(str(2), {}).get('abs_path', None)
+                if abs_path_3:
+                    header_extractor = TableHeaderExtractor(abs_path_3)
+                    header_results, core_results = header_extractor.process(result_dict)
+
+                    multi_page_doc, table_idx_metadata = unqiue_tables_to_pages(abs_path_3, core_results['relative_bounds'])
+                    directory_file_node = register_service.get_node(file_id=req.file_id)
+                    directory_file_node.add_stage(3)
+
+                    directory_file_node.store_metadata(3, {3: table_idx_metadata}, db)
+                    stage3_outpath = directory_file_node.stage_paths[3]['abs_path']
+                    multi_page_doc.save(stage3_outpath)
+        
+                    index = FitzTextIndex.from_document(multi_page_doc)
+                    all_pages_text_index = index.query(**{"blocks[*].lines[*].spans[*].text": "*"}, restrict=["text", "font", "bbox"])
+                    line_index = LineTextIndex(all_pages_text_index, page_metadata=index.page_metadata)
+                    engine = QueryEngine(line_index)
+                    numbers = engine.get("Numbers")
+                    percentages = engine.get("Percentages")
+                    paragraphs = engine.get("Paragraphs")
+                    dates = engine.get("Dates")
+                    toll_free = engine.get("Toll.Free.#")
+                    horizontal_whitespace = engine.get("Horizontal.Whitespace")
+
+                    # return header_results
+                    if header_results:
+                        return {
+                            'inference_result': results, 
+                            'header_bounds': header_results,
+                            'core_results': core_results,
+                            'file_node_path': abs_path_3,
+                            'stage3': [
+                                numbers, 
+                                percentages,
+                                paragraphs, 
+                                dates, 
+                                toll_free, 
+                                horizontal_whitespace
+                            ]
+                        }
+            return {'inference_result': results}
     else:
         return {}
 
 
-    # db = api_service.db
-    # node = db.run_op(FileNodeRecord, "get", filter_by={'uuid': req.file_id})
-    # if node:
-    #     node_stage_paths = json.loads(node[0].stage_paths_json)
-    #     abs_path = node_stage_paths.get(str(req.stage), {}).get('abs_path', None)
-    #     mount_path = node_stage_paths.get(str(req.stage), {}).get('mount_path', None)
 
-    #     client = VisionInferenceClient(
-    #         model_library={
-    #             'mistralVL': ('mistral-small3.1:24b', 'ollama-medium-ollama.portal-ai.tools'),
-    #             'llamaVL':   ('llama3.2-vision', 'ollama-embeddings-ollama.portal-ai.tools')
-    #         },
-    #         model_choice='mistralVL',
-    #         username=api_service.service_config.ollama_api_user,
-    #         password=api_service.service_config.ollama_api_key,
-    #         page_limit=None
-    #     )
+def unqiue_tables_to_pages(file_path, relative_bounds):
 
-    #     print(f"CLASSIFICAITON: {req.classification_label}")
+    # relative_bounds = response.json()['core_results']['relative_bounds']
 
-    #     results, timings = client.process_pdf(
-    #         pdf_path=abs_path,
-    #         prompt=TABLE_STRUCTURE_PROMPT_V5,
-    #     )
+    table_idx_bounds = defaultdict(list)
+    table_idx_bounds_seen = defaultdict(set)  # <-- This tracks unique bboxes per table
+    table_idx_metadata = defaultdict(list)
 
-    #     inference_model = LLMInferenceTableStructures(
-    #         run_uuid=str(uuid.uuid4()),
-    #         uuid=req.file_id,
-    #         stage=req.stage,
-    #         classification_label=req.classification_label,
-    #         prompt=TABLE_STRUCTURE_PROMPT_V5, 
-    #         prompt_version=5, 
-    #         prompt_name="TABLE_STRUCTURE_PROMPT", 
-    #         response=json.dumps(results)
-    #     )
+    for table in relative_bounds:
+        tidx = table['table_index']
+        bbox = table['table_metadata'].get('refined_table_bounds', {}).get('bbox', None)
+        if bbox is not None:
+            bbox_tuple = tuple(bbox)
+            if bbox_tuple not in table_idx_bounds_seen[tidx]:
+                table_idx_bounds[tidx].append(bbox)
+                table_idx_bounds_seen[tidx].add(bbox_tuple)
+        # No deduplication needed here for metadata, but keep as is:
+        table_idx_metadata[tidx].append({
+            'table_index': table['table_index'],
+            'headers_bbox': table['bbox'],
+            'columns': table['columns'],
+            'hierarchy': table['hierarchy'],
+            'bounds_index': table['bounds_index']
+        })
 
-    #     db.run_op(
-    #         LLMInferenceTableStructures, 
-    #         operation="merge", 
-    #         data=inference_model
-    #     )
+    print(f"table_idx_bounds: {table_idx_bounds}")
+
+    table_docs = {}
+    for tbl_idx, bounds in table_idx_bounds.items():
+        d = Stitch.clip_and_place_pdf_regions(
+            input_pdf_path=file_path,
+            regions=bounds,
+            source_page_number=0,
+            layout='vertical',
+            page_width=None,
+            page_height=None,
+            margin=20,
+            gap=25,
+            center_horizontally=True
+        )
+        if d:
+            table_docs[tbl_idx] = d
+            width = d[0].rect.width
+            height = d[0].rect.height
+            for item in table_idx_metadata[tbl_idx]:
+                item['page_metadata'] = {0: {'width': width, 'height': height}}
+
+    output_pdf = fitz.open()  # Empty PDF to collect all table pages
+
+    for idx in sorted(table_docs.keys()):
+        doc = table_docs[idx]
+        # Insert the first (and only) page from each table_doc
+        output_pdf.insert_pdf(doc, from_page=0, to_page=0)
+
+    return output_pdf, table_idx_metadata

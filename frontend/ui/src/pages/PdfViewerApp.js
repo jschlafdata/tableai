@@ -353,7 +353,7 @@ function PdfViewerApp() {
                     />
                   </Box>
                   <Divider sx={{ my: 2 }} />
-                  <Box sx={{ pt: 1 }}>
+                  {/* <Box sx={{ pt: 1 }}>
                     <TableHeaderBounds
                       fileId={currentFileId}
                       stage={selectedStage}
@@ -363,7 +363,7 @@ function PdfViewerApp() {
                       scale={scale}
                       metadata={currentMetadata}
                     />
-                  </Box>
+                  </Box> */}
                 </>
               )}
             </div>

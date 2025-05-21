@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { usePdfDataContext } from '../services/PdfDataContext';
 import TableHeaderActions from './TableHeaderActions';
 import TableHeaderToggles from './TableHeaderToggles';
 import BoundingBoxesPortal from './BoundingBoxesPortal';
@@ -13,61 +12,79 @@ const TableHeaderBounds = ({
   currentPage,
   pdfContainerRef,
   scale = 1.5,
-  metadata = {}
+  metadata = {},
+  headerResponse, 
 }) => {
-  const {
-    tableHeaders,
-    tableHeadersLoading,
-    handleProcessTableHeaders,
-    error,
-    reloadMetadata
-  } = usePdfDataContext();
-
   const [showResults, setShowResults] = useState(true);
   const [tableToggles, setTableToggles] = useState({});
+  const [metadataToggles, setMetadataToggles] = useState({});
   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
   const [localError, setLocalError] = useState(null);
 
+  console.log("LOGGING HEADERS ACTIVITY:", headerResponse);
+
+  // Example: if you still need classification info
   const hasClassification = !!metadata?.classification;
 
-  /** Cleanup the container when unmounting */
-  useEffect(() => {
-    return () => {
-      const boxContainer = document.getElementById('table-header-box-container');
-      if (boxContainer && boxContainer.parentNode) {
-        boxContainer.parentNode.removeChild(boxContainer);
-      }
-    };
-  }, []);
+  // We'll just refer to the passed-in data as "tableHeaders" for convenience
+  const tableHeaders = headerResponse || {};
 
   /**
-   * Whenever `tableHeaders` changes, extract new toggle states.
+   * Whenever the tableHeaders update, extract new toggle states.
    */
   useEffect(() => {
-    if (!tableHeaders || !tableHeaders.results?.pages) return;
+    if (!tableHeaders?.results?.pages) return;
     
     const toggles = {};
+    const metaToggles = {};
     const tables = new Set();
+
+    // Collect all table_index values across pages
     Object.values(tableHeaders.results.pages).forEach(pageItems => {
       pageItems.forEach(item => {
         if (item.table_index != null) {
           tables.add(item.table_index);
+          
+          // Initialize metadata toggles for this table
+          const tableKey = `Table ${item.table_index}`;
+          if (!metaToggles[tableKey]) {
+            metaToggles[tableKey] = {
+              main_bbox: true // By default, show the main bounding box
+            };
+          }
+          
+          // Enable toggles for all metadata fields by default
+          if (item.table_metadata) {
+            Object.entries(item.table_metadata).forEach(([metaKey, metaObj]) => {
+              if (metaObj?.bbox) {
+                metaToggles[tableKey][metaKey] = true;
+              }
+            });
+          }
+          
+          // Enable toggles for other attributes with bbox info
+          ['bounds_index', 'hierarchy', 'col_hash'].forEach(attr => {
+            if (item[attr]?.bbox) {
+              metaToggles[tableKey][attr] = true;
+            }
+          });
         }
       });
     });
 
+    // By default, enable toggles for each table found
     tables.forEach(tableIndex => {
       toggles[`Table ${tableIndex}`] = true;
     });
 
     setTableToggles(toggles);
+    setMetadataToggles(metaToggles);
     setBoundingBoxesVisible(true);
     setShowResults(true);
   }, [tableHeaders]);
 
   /**
-   * If we toggle the results or toggles, re-show bounding boxes after a short delay
-   * to re-inject them properly into the portal.
+   * If we toggle the results or toggles, re-inject bounding boxes after a short delay.
    */
   useEffect(() => {
     if (showResults && Object.keys(tableToggles).length > 0) {
@@ -75,43 +92,24 @@ const TableHeaderBounds = ({
       const timer = setTimeout(() => setBoundingBoxesVisible(true), 50);
       return () => clearTimeout(timer);
     }
-  }, [tableToggles, showResults]);
-
-  /**
-   * Start table header detection & handle errors
-   */
-  const onProcessTableHeaders = async () => {
-    if (!fileId || !hasClassification) {
-      setLocalError("Cannot run table header detection — file must have a classification.");
-      return;
-    }
-    setTableToggles({});
-    setBoundingBoxesVisible(false);
-    try {
-      await handleProcessTableHeaders({
-        fileId,
-        stage,
-        classificationLabel: metadata.classification
-      });
-      await reloadMetadata();
-    } catch (err) {
-      setLocalError(err.message);
-    }
-  };
+  }, [tableToggles, metadataToggles, showResults]);
 
   /**
    * Show/hide the entire result set
    */
   const toggleResults = () => {
-    setShowResults(!showResults);
-    setBoundingBoxesVisible(!showResults);
+    setShowResults(prev => !prev);
+    setBoundingBoxesVisible(prev => !prev);
   };
 
+  /**
+   * Create a color map for each distinct table index
+   */
   const colorMap = useMemo(() => {
     if (!tableHeaders?.results?.pages) return {};
     const newMap = {};
-    // Gather all tableIndexes
     const indexes = new Set();
+
     Object.values(tableHeaders.results.pages).forEach(pageItems => {
       pageItems.forEach(item => {
         if (item.table_index != null) {
@@ -119,7 +117,6 @@ const TableHeaderBounds = ({
         }
       });
     });
-    // Assign color to each
     indexes.forEach(index => {
       newMap[`Table ${index}`] = getColorForTable(index);
     });
@@ -128,13 +125,16 @@ const TableHeaderBounds = ({
 
   return (
     <>
-      {/* Actions (Detect, Show/Hide, etc.) */}
+      {/* 
+          TableHeaderActions can still render a "Detect Headers" button if you like,
+          but if you no longer need that (since the data is already cached),
+          you can remove it or simplify it.
+       */}
       <TableHeaderActions
         hasClassification={hasClassification}
         fileId={fileId}
+        // Pass in the data if needed, or remove these props if not used
         tableHeaders={tableHeaders}
-        tableHeadersLoading={tableHeadersLoading}
-        onProcessTableHeaders={onProcessTableHeaders}
         showResults={showResults}
         toggleResults={toggleResults}
         currentPage={currentPage}
@@ -146,6 +146,8 @@ const TableHeaderBounds = ({
           tableHeaders={tableHeaders}
           tableToggles={tableToggles}
           setTableToggles={setTableToggles}
+          metadataToggles={metadataToggles}
+          setMetadataToggles={setMetadataToggles}
           showResults={showResults}
           colorMap={colorMap}
           currentPage={currentPage}
@@ -158,6 +160,7 @@ const TableHeaderBounds = ({
           pdfContainerRef={pdfContainerRef}
           tableHeaders={tableHeaders}
           tableToggles={tableToggles}
+          metadataToggles={metadataToggles}
           boundingBoxesVisible={boundingBoxesVisible}
           pageDimensions={pageDimensions}
           currentPage={currentPage}
@@ -167,8 +170,7 @@ const TableHeaderBounds = ({
 
       {/* Error/Success Snackbar */}
       <ErrorSnackbar
-        error={error}
-        localError={localError}
+        error={localError}
         onClose={() => setLocalError(null)}
       />
     </>

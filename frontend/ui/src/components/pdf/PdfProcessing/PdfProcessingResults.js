@@ -1,3 +1,5 @@
+// 1. UPDATED PdfProcessingResults.jsx
+// The parent component that manages the vision inference
 import React, { useState, useEffect } from 'react';
 import {
   Snackbar,
@@ -14,6 +16,7 @@ import { usePdfDataContext } from '../services/PdfDataContext';
 import transformCoordWithContainer from '../utils/transformCoordWithContainer';
 import getFilteredBoxesData from '../utils/getFilteredBoxesData';
 import { createLabelColorGenerator } from '../utils/getColorForLabel';
+import TableHeaderBounds  from '../TableHeaderBounds/TableHeaderBounds'
 
 // For debugging
 const DEBUG = false;
@@ -47,6 +50,12 @@ const PdfProcessingResults = ({
   const [queryToggles, setQueryToggles] = useState({});
   const [boundingBoxesVisible, setBoundingBoxesVisible] = useState(false);
   const [localError, setLocalError] = useState(null);
+  
+  // Track vision responses (full inference_result) by fileId
+  const [visionResponses, setVisionResponses] = useState({});
+  
+  // NEW: Track header responses (header_results) by fileId
+  const [headerResponses, setHeaderResponses] = useState({});
 
   // ---- Clean up bounding box container on unmount ----
   useEffect(() => {
@@ -62,6 +71,18 @@ const PdfProcessingResults = ({
   useEffect(() => {
     if (error) setLocalError(error);
   }, [error]);
+  
+  // Clear vision and header responses when file changes (or reset for new file)
+  useEffect(() => {
+    setVisionResponses(prev => ({
+      ...prev,
+      [fileId]: null
+    }));
+    setHeaderResponses(prev => ({
+      ...prev,
+      [fileId]: null
+    }));
+  }, [fileId]);
 
   // ---- Determine current stage results ----
   const getCurrentStageResults = () => {
@@ -129,19 +150,43 @@ const PdfProcessingResults = ({
       setLocalError(err.message);
     }
   };
-  
-  const onRunVisionInference = async (visionOptions) => {
+
+  const onRunVisionInference = async (options) => {
     if (!fileId || !hasClassification) {
       setLocalError("Cannot run vision inference - file must have a classification");
       return;
     }
     try {
-      await handleRunVisionInference({
+      // Clear any existing vision/header response for this file
+      setVisionResponses(prev => ({
+        ...prev,
+        [fileId]: null
+      }));
+      setHeaderResponses(prev => ({
+        ...prev,
+        [fileId]: null
+      }));
+  
+      // Call the context handler with the options
+      const response = await handleRunVisionInference({
         fileId,
-        stage: effectiveStage,                   // from props or context
-        classificationLabel: metadata.classification, // from your file metadata
-        ...visionOptions                         // spread all the options from VisionInferenceOptions
+        stage: effectiveStage,
+        classificationLabel: metadata.classification,
+        ...options
       });
+  
+      // Extract and store the actual result
+      setVisionResponses(prev => ({
+        ...prev,
+        [fileId]: response.inference_result
+      }));
+
+      // NEW: Store header_results in separate cache
+      setHeaderResponses(prev => ({
+        ...prev,
+        [fileId]: response.header_bounds
+      }));
+  
       setLocalError({ message: "Vision inference completed successfully!", severity: "success" });
       await reloadMetadata();
     } catch (err) {
@@ -185,7 +230,6 @@ const PdfProcessingResults = ({
     });
     setQueryToggles(updated);
   };
-
 
   const boxesData = getFilteredBoxesData({
     data: currentStageResults,
@@ -265,7 +309,7 @@ const PdfProcessingResults = ({
   // ---- Render ----
   return (
     <>
-      {/* Top bar / process controls */}
+      {/* Top bar / process controls - pass down the relevant responses */}
       <PdfProcessingControls
         fileId={fileId}
         hasClassification={hasClassification}
@@ -280,6 +324,20 @@ const PdfProcessingResults = ({
         effectiveStage={effectiveStage}
         hasCurrentStageResults={hasCurrentStageResults}
         metadata={metadata}
+        visionResponse={visionResponses[fileId] || null}
+        headerResponse={headerResponses[fileId] || null}
+      />
+
+      <TableHeaderBounds
+        fileId={fileId}
+        stage={effectiveStage}
+        pageDimensions={pageDimensions}
+        currentPage={currentPage}
+        pdfContainerRef={pdfContainerRef}
+        scale={scale}
+        metadata={metadata}
+        // Pass in the cached headers:
+        headerResponse={headerResponses[fileId] || null}
       />
 
       {/* Query filters panel */}

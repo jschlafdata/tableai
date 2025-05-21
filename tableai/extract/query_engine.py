@@ -21,12 +21,14 @@ from tableai.extract.index_search import  (
 
 
 class QueryEngine:
-    def __init__(self, line_index):
+    def __init__(self, line_index, 
+                 y_tolerance=10, HEADER_BOUND=100, 
+                 FOOTER_BOUND=75, MIN_OCCURRENCES=2):
         self.line_index = line_index
-        self.y_tolerance = 10
-        self.HEADER_BOUND = 100
-        self.FOOTER_BOUND = 75
-        self.MIN_OCCURRENCES = 2
+        self.y_tolerance = y_tolerance
+        self.HEADER_BOUND = HEADER_BOUND
+        self.FOOTER_BOUND = FOOTER_BOUND
+        self.MIN_OCCURRENCES = MIN_OCCURRENCES
 
         # Registry of available query types
         self.queries = {
@@ -101,7 +103,9 @@ class QueryEngine:
             )(filterby(lambda t: patterns(t, pattern_name="toll_free"), field="value", test=bool)(rows))
         )
 
-    def horizontal_whitespace(self):
+    def horizontal_whitespace(self, y_tolerance=None):
+        if y_tolerance:
+            self.y_tolerance = y_tolerance
         return self.line_index.query(
             key="full_width_v_whitespace",
             transform=lambda rows: render_api(

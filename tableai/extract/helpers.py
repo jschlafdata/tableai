@@ -614,7 +614,11 @@ class Stitch:
             return None, None
 
         # Convert regions to fitz.Rect objects
-        region_rects = [fitz.Rect(*r['bbox']) for r in regions]
+        region_rects = [fitz.Rect(*r['bbox']) for r in regions if isinstance(r, dict)]
+        if not region_rects:
+            region_rects = [fitz.Rect(*r) for r in regions if isinstance(r, list|tuple)]
+
+        print(f"{region_rects}")
 
         # Create new PDF document
         new_doc = fitz.open()
