@@ -93,8 +93,8 @@ async def run_extraction(
 ): 
     query = """select b.* 
                 from 
-                dropboxsyncrecord a
-                join pdfclassifications b 
+                dropbox_sync_record a
+                join pdf_classifications b 
                 on a.dropbox_safe_id = b.file_id"""
     return api_service.db.run_raw(query)
 
@@ -129,22 +129,44 @@ def get_stage0_summary(
     api_service: 'APIService' = Depends(ensure_initialized)
     ):
     query = """
-    SELECT 
-        uuid as file_id, 
-        REPLACE(uuid, 'id_', 'id:') AS dropbox_id,
-        json_extract(extraction_metadata_json, '$.stage0.recovery_path') as recovery_path,
-        json_extract(extraction_metadata_json, '$.stage0.meta_tag') as classification_id,
-        json_extract(extraction_metadata_json, '$.stage0.recovered') as recovered_pdf,
-        json_extract(extraction_metadata_json, '$.stage0.abs_path') as stage0_path,
-        json_extract(extraction_metadata_json, '$.stage0') as stage0_metadata,
-        json_extract(completed_stages_json, '$[0]') as stage0_complete,
-        lower((
-            SELECT GROUP_CONCAT(value, '/')
-            FROM json_each(FileNodeRecord.source_directories_json)
-            ) || '/' || file_name) AS path_lower,
+        SELECT
+        uuid                                AS file_id,
+        REPLACE(uuid, 'id_', 'id:')         AS dropbox_id,
+
+        -- navigate into JSON “stage0” and pull text values
+        (extraction_metadata_json::jsonb
+            -> 'stage0'
+            ->> 'recovery_path')              AS recovery_path,
+        (extraction_metadata_json::jsonb
+            -> 'stage0'
+            ->> 'meta_tag')                   AS classification_id,
+        (extraction_metadata_json::jsonb
+            -> 'stage0'
+            ->> 'recovered')                  AS recovered_pdf,
+        (extraction_metadata_json::jsonb
+            -> 'stage0'
+            ->> 'abs_path')                   AS stage0_path,
+
+        -- raw JSON object for stage0
+        (extraction_metadata_json::jsonb
+            -> 'stage0')                      AS stage0_metadata,
+
+        -- pull first element of JSON array
+        (completed_stages_json::jsonb
+            -> 0)                              AS stage0_complete,
+
+        -- rebuild path from JSON array
+        lower(
+            (
+            SELECT string_agg(elem, '/')
+            FROM jsonb_array_elements_text(source_directories_json::jsonb) AS elems(elem)
+            )
+            || '/' || file_name
+        )                                    AS path_lower,
+
         *
-    FROM FileNodeRecord
-    WHERE source_type = 'file'
+        FROM file_node_record
+        WHERE source_type = 'file';
     """
     return api_service.db.run_raw(query)
 
