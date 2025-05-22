@@ -117,7 +117,7 @@ def get_classification_samples(
     query = """select b.* 
             from 
             dropbox_sync_record a
-            join pdfclassifications b 
+            join pdf_classifications b 
             on a.dropbox_safe_id = b.file_id"""
     records = api_service.db.run_raw(query)
     grouped = {}
