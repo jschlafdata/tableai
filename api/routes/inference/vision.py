@@ -7,7 +7,7 @@ from fastapi import (
 )
 
 import json
-from typing import List, Any, Dict, Union
+from typing import List, Any, Dict, Union, Optional
 import uuid
 from pathlib import Path
 from pydantic import BaseModel
@@ -80,6 +80,17 @@ class TableCountWithColumnsDict(BaseModel):
     number_of_tables: int
     tables: Dict[str, TableColumnsEntry]
 
+class TableWithNameAndTotals(BaseModel):
+    table_name: Optional[str]
+    columns: List[str]
+    totals_row_label: Optional[str]
+    bottom_right_cell_value: Optional[str]
+    table_breakers: Optional[List[str]]
+
+class TableCountWithNamesAndTotalsDict(BaseModel):
+    number_of_tables: int
+    tables: Dict[str, TableWithNameAndTotals]
+
 @router.post("/find_table_columns")
 def get_extraction(
     req: PdfVisionModelRequest,
@@ -90,64 +101,90 @@ def get_extraction(
     node = db.run_op(FileNodeRecord, "get", filter_by={'uuid': req.file_id})
     register_service = DropboxRegisterService(db)
     if node:
-        node_stage_paths = json.loads(node[0].stage_paths_json)
-        abs_path = node_stage_paths.get(str(0), {}).get('abs_path', None)
-        if abs_path:
-            pdf_model = PDFModel(path=Path(abs_path), source=Source.LOCAL)
-            if req.page_limit:
-                pdf_model.set_limit(req.page_limit)
+        print(f"RUNNING promptId: {req.promptId}")
+        if req.promptId == 1:
+            node_stage_paths = json.loads(node[0].stage_paths_json)
+            abs_path = node_stage_paths.get(str(0), {}).get('abs_path', None)
+            if abs_path:
+                pdf_model = PDFModel(path=Path(abs_path), source=Source.LOCAL)
+                if req.page_limit:
+                    pdf_model.set_limit(req.page_limit)
 
-            # Use the received request model directly
-            client = VisionInferenceClient(
-                username=api_service.service_config.ollama_api_user,
-                password=api_service.service_config.ollama_api_key,
-            )
-            results = client.process_pdf(req, pdf_model, TableCountWithColumnsDict)
-            if results:
-                result_dict = [res.dict() for res in results if res.dict()]
-                abs_path_3 = node_stage_paths.get(str(2), {}).get('abs_path', None)
-                if abs_path_3:
-                    header_extractor = TableHeaderExtractor(abs_path_3)
-                    header_results, core_results = header_extractor.process(result_dict)
+                # Use the received request model directly
+                client = VisionInferenceClient(
+                    username=api_service.service_config.ollama_api_user,
+                    password=api_service.service_config.ollama_api_key,
+                )
+                results = client.process_pdf(req, pdf_model, TableCountWithColumnsDict)
+                if results:
+                    result_dict = [res.dict() for res in results if res.dict()]
+                    abs_path_3 = node_stage_paths.get(str(2), {}).get('abs_path', None)
+                    if abs_path_3:
+                        header_extractor = TableHeaderExtractor(abs_path_3)
+                        header_results, core_results = header_extractor.process(result_dict)
 
-                    multi_page_doc, table_idx_metadata = unqiue_tables_to_pages(abs_path_3, core_results['relative_bounds'])
-                    directory_file_node = register_service.get_node(file_id=req.file_id)
-                    directory_file_node.add_stage(3)
+                        try:
+                            multi_page_doc, table_idx_metadata = unqiue_tables_to_pages(abs_path_3, core_results['relative_bounds'])
+                            directory_file_node = register_service.get_node(file_id=req.file_id)
+                            directory_file_node.add_stage(3)
 
-                    directory_file_node.store_metadata(3, {3: table_idx_metadata}, db)
-                    stage3_outpath = directory_file_node.stage_paths[3]['abs_path']
-                    multi_page_doc.save(stage3_outpath)
-        
-                    index = FitzTextIndex.from_document(multi_page_doc)
-                    all_pages_text_index = index.query(**{"blocks[*].lines[*].spans[*].text": "*"}, restrict=["text", "font", "bbox"])
-                    line_index = LineTextIndex(all_pages_text_index, page_metadata=index.page_metadata)
-                    engine = QueryEngine(line_index)
-                    numbers = engine.get("Numbers")
-                    percentages = engine.get("Percentages")
-                    paragraphs = engine.get("Paragraphs")
-                    dates = engine.get("Dates")
-                    toll_free = engine.get("Toll.Free.#")
-                    horizontal_whitespace = engine.get("Horizontal.Whitespace")
+                            directory_file_node.store_metadata(3, {3: table_idx_metadata}, db)
+                            stage3_outpath = directory_file_node.stage_paths[3]['abs_path']
+                            multi_page_doc.save(stage3_outpath)
+                
+                            index = FitzTextIndex.from_document(multi_page_doc)
+                            all_pages_text_index = index.query(**{"blocks[*].lines[*].spans[*].text": "*"}, restrict=["text", "font", "bbox"])
+                            line_index = LineTextIndex(all_pages_text_index, page_metadata=index.page_metadata)
+                            engine = QueryEngine(line_index)
+                            numbers = engine.get("Numbers")
+                            percentages = engine.get("Percentages")
+                            paragraphs = engine.get("Paragraphs")
+                            dates = engine.get("Dates")
+                            toll_free = engine.get("Toll.Free.#")
+                            horizontal_whitespace = engine.get("Horizontal.Whitespace")
+                        except:
+                            return {
+                                'inference_result': results, 
+                                'header_bounds': header_results,
+                                'core_results': core_results,
+                            }
+                        # return header_results
+                        if header_results:
+                            return {
+                                'inference_result': results, 
+                                'header_bounds': header_results,
+                                'core_results': core_results,
+                                'file_node_path': abs_path_3,
+                                'stage3': [
+                                    numbers, 
+                                    percentages,
+                                    paragraphs, 
+                                    dates, 
+                                    toll_free, 
+                                    horizontal_whitespace
+                                ]
+                            }
+                return {'inference_result': results}
 
-                    # return header_results
-                    if header_results:
-                        return {
-                            'inference_result': results, 
-                            'header_bounds': header_results,
-                            'core_results': core_results,
-                            'file_node_path': abs_path_3,
-                            'stage3': [
-                                numbers, 
-                                percentages,
-                                paragraphs, 
-                                dates, 
-                                toll_free, 
-                                horizontal_whitespace
-                            ]
-                        }
-            return {'inference_result': results}
+        if req.promptId == 2:
+            node_stage_paths = json.loads(node[0].stage_paths_json)
+            abs_path = node_stage_paths.get(str(3), {}).get('abs_path', None)
+            print(f'RUNNING ABS PATH: {abs_path}')
+            if abs_path:
+                pdf_model = PDFModel(path=Path(abs_path), source=Source.LOCAL)
+                if req.page_limit:
+                    pdf_model.set_limit(req.page_limit)
+
+                # Use the received request model directly
+                client = VisionInferenceClient(
+                    username=api_service.service_config.ollama_api_user,
+                    password=api_service.service_config.ollama_api_key,
+                )
+                results = client.process_pdf(req, pdf_model, TableCountWithNamesAndTotalsDict)
+                print(f"RESULTS: {results}")
+                return {'inference_result': results}
     else:
-        return {}
+        return {'inference_result': {}}
 
 
 
@@ -188,7 +225,7 @@ def unqiue_tables_to_pages(file_path, relative_bounds):
             page_width=None,
             page_height=None,
             margin=20,
-            gap=25,
+            gap=2,
             center_horizontally=True
         )
         if d:

@@ -20,6 +20,7 @@ class PdfVisionModelRequest(BaseModel):
     max_attempts: Optional[int] = Field(None, description="Max retry attempts")
     timeout: Optional[int] = Field(None, description="Timeout in seconds")
     prompt: str = Field(..., description="Prompt paragraph for the model")
+    promptId: Optional[int] = Field(None, description="Unique prompt id for flow routing")
 
 
 class LLMTableStructureRequest(BaseModel):
