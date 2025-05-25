@@ -158,7 +158,7 @@ const PdfProcessingControls = ({
             onRunVisionInference={handleRunVisionInference}
             visionResponse={visionResponse} // NEW: Pass the response prop
             defaultOptions={{
-              model_choice: 'gemma3',
+              model_choice: 'mistralVL',
               temperature: 0,
               top_k: 40,
               top_p: 0.95,
