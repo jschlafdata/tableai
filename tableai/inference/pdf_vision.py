@@ -112,9 +112,10 @@ class VisionInferenceClient(Generic[OutputModelT]):
                         "validated": None,
                         "raw": raw_str,
                         "json": response_obj,
-                        "validation_error": str(e)
+                        "validation_error": str(e),
+                        "page_number": page_number
                     }
-                return validated
+                return {'result': validated, 'page_number': page_number}
             except (requests.RequestException, KeyError) as e:
                 last_error = e
                 if verbose:
@@ -125,7 +126,8 @@ class VisionInferenceClient(Generic[OutputModelT]):
         return {
             "validated": None,
             "raw": None,
-            "error": str(last_error)
+            "error": str(last_error),
+            "page_number": page_number
         }
 
     def build_schema_guided_prompt(self, prompt: str, output_model: type[BaseModel]) -> str:

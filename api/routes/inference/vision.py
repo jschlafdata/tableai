@@ -117,7 +117,7 @@ def get_extraction(
                 )
                 results = client.process_pdf(req, pdf_model, TableCountWithColumnsDict)
                 if results:
-                    result_dict = [res.dict() for res in results if res.dict()]
+                    result_dict = [res.dict() for res in results if hasattr(res, 'dict') and res.dict()]
                     abs_path_3 = node_stage_paths.get(str(2), {}).get('abs_path', None)
                     if abs_path_3:
                         header_extractor = TableHeaderExtractor(abs_path_3)
@@ -182,7 +182,7 @@ def get_extraction(
                 )
                 results = client.process_pdf(req, pdf_model, TableCountWithNamesAndTotalsDict)
                 print(f"RESULTS: {results}")
-                return {'inference_result': results}
+                return {'inference_result': results, 'request_params': req.dict(), 'abs_path': abs_path}
     else:
         return {'inference_result': {}}
 

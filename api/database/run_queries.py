@@ -96,13 +96,18 @@ async def run_extraction(
 @router.get("/classify/labels")
 async def run_extraction(
     api_service: 'APIService' = Depends(ensure_initialized)
-): 
-    query = """select b.* 
-                from 
-                dropbox_sync_record a
-                join pdf_classifications b 
-                on a.dropbox_safe_id = b.file_id"""
-    return api_service.db.run_raw(query)
+):
+    sync_records = api_service.db.run_op(DropboxSyncRecord, operation="get")
+    label_records = api_service.db.run_op(ClassificationLabel, operation="get")
+    
+    sync_map = {r.dropbox_safe_id: r for r in sync_records}
+    labels = []
+    for label in label_records:
+        if label.file_id in sync_map:
+            # Merge as dicts (or adjust as needed)
+            merged = {**sync_map[label.file_id].__dict__, **label.__dict__}
+            labels.append(merged)
+    return labels
 
 
 @router.get("/classify/samples")
@@ -110,72 +115,55 @@ def get_classification_samples(
     limit: int = 10,
     api_service: 'APIService' = Depends(ensure_initialized)
 ):
-    """
-    Return sample file_ids grouped by classification.
-    Useful for UI to preview documents before assigning labels.
-    """
-    query = """select b.* 
-            from 
-            dropboxsyncrecord a
-            join pdfclassifications b 
-            on a.dropbox_safe_id = b.file_id"""
-    records = api_service.db.run_raw(query)
+    sync_records = api_service.db.run_op(DropboxSyncRecord, operation="get")
+    label_records = api_service.db.run_op(ClassificationLabel, operation="get")
+    
+    sync_map = {r.dropbox_safe_id: r for r in sync_records}
     grouped = {}
-    for r in records:
-        if not r.get('classification'):
-            continue
-        grouped.setdefault(r['classification'], []).append(r['file_id'])
-
-    # Limit to N samples per group
+    for label in label_records:
+        if label.file_id in sync_map and getattr(label, 'classification', None):
+            grouped.setdefault(label.classification, []).append(label.file_id)
     return {k: v[:limit] for k, v in grouped.items()}
 
 
 @router.get("/stage0_summary", response_model=List[Dict])
 def get_stage0_summary(
     api_service: 'APIService' = Depends(ensure_initialized)
-    ):
-    query = """
-        SELECT
-        uuid                                AS file_id,
-        REPLACE(uuid, 'id_', 'id:')         AS dropbox_id,
+):
+    records = api_service.db.run_op(FileNodeRecord, operation="get")
+    result = []
+    for r in records:
+        # Unpack JSON if needed
+        try:
+            extraction_meta = json.loads(r.extraction_metadata_json)
+            stage0 = extraction_meta.get('stage0', {})
+        except Exception:
+            stage0 = {}
+        try:
+            completed_stages = json.loads(r.completed_stages_json)
+            stage0_complete = completed_stages[0] if completed_stages else None
+        except Exception:
+            stage0_complete = None
+        try:
+            source_dirs = json.loads(r.source_directories_json)
+            path_lower = '/'.join(source_dirs) + '/' + r.file_name
+        except Exception:
+            path_lower = r.file_name
 
-        -- navigate into JSON “stage0” and pull text values
-        (extraction_metadata_json::jsonb
-            -> 'stage0'
-            ->> 'recovery_path')              AS recovery_path,
-        (extraction_metadata_json::jsonb
-            -> 'stage0'
-            ->> 'meta_tag')                   AS classification_id,
-        (extraction_metadata_json::jsonb
-            -> 'stage0'
-            ->> 'recovered')                  AS recovered_pdf,
-        (extraction_metadata_json::jsonb
-            -> 'stage0'
-            ->> 'abs_path')                   AS stage0_path,
-
-        -- raw JSON object for stage0
-        (extraction_metadata_json::jsonb
-            -> 'stage0')                      AS stage0_metadata,
-
-        -- pull first element of JSON array
-        (completed_stages_json::jsonb
-            -> 0)                              AS stage0_complete,
-
-        -- rebuild path from JSON array
-        lower(
-            (
-            SELECT string_agg(elem, '/')
-            FROM jsonb_array_elements_text(source_directories_json::jsonb) AS elems(elem)
-            )
-            || '/' || file_name
-        )                                    AS path_lower,
-
-        *
-        FROM file_node_record
-        WHERE source_type = 'file';
-    """
-    return api_service.db.run_raw(query)
-
+        result.append({
+            "file_id": r.uuid,
+            "dropbox_id": r.uuid.replace("id_", "id:"),
+            "recovery_path": stage0.get("recovery_path"),
+            "classification_id": stage0.get("meta_tag"),
+            "recovered_pdf": stage0.get("recovered"),
+            "stage0_path": stage0.get("abs_path"),
+            "stage0_metadata": stage0,
+            "stage0_complete": stage0_complete,
+            "path_lower": path_lower.lower(),
+            # Optionally add all fields in r:
+            **r.__dict__,
+        })
+    return result
 
 @router.get("/inference_results/table_structure")
 def get_inference_results(
