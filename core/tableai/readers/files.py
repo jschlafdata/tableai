@@ -7,11 +7,15 @@ import json
 from json_repair import loads as json_repair_loads
 import yaml
 import fitz
-from ocrmypdf import ocr, ExitCode
 import argparse
 import requests
 import os, io, tempfile, contextlib, json, yaml, boto3, urllib, urllib.parse, pathlib
 
+try:
+    from ocrmypdf import ocr, ExitCode
+    _OCR_AVAILABLE = True
+except ImportError:
+    _OCR_AVAILABLE = False
 
 class _Source(Enum):
     LOCAL  = "local"
