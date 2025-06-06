@@ -1,0 +1,58 @@
+
+# ────────────────────────────────────────────────────────────────
+# Standalone YOLO Table Detection Service - CPU Edition
+# ────────────────────────────────────────────────────────────────
+FROM python:3.11-slim-bullseye
+
+ENV PIP_NO_CACHE_DIR=off \
+    PYTHONUNBUFFERED=1 \
+    DEBIAN_FRONTEND=noninteractive \
+    POETRY_NO_INTERACTION=1 \
+    POETRY_VENV_IN_PROJECT=1 \
+    POETRY_CACHE_DIR=/tmp/poetry_cache \
+    PORT=8000
+
+# ── OS deps ─────────────────────────────────────────────────────
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        git gcc g++ cmake \
+        libgl1-mesa-glx libglib2.0-0 \
+        curl && \
+    rm -rf /var/lib/apt/lists/*
+
+# ── Install Poetry ──────────────────────────────────────────────
+RUN pip install --upgrade pip && \
+    pip install poetry==1.8.3
+
+WORKDIR /app
+
+# ── Copy project structure for Poetry to work ──────────────────
+COPY plugins/yolo/pyproject.toml plugins/yolo/poetry.lock ./plugins/yolo/
+COPY tools/ ./plugins/yolo/tools/
+
+# ── Configure Poetry from the correct directory ────────────────
+WORKDIR /app/plugins/yolo
+RUN poetry config virtualenvs.create false
+
+# ── Install non-PyTorch dependencies first ──────────────────────
+RUN poetry install --no-dev && \
+    rm -rf $POETRY_CACHE_DIR
+
+RUN cp -r ./tools/tableai_tools /usr/local/lib/python3.11/site-packages/
+# ── Show installed Poetry packages ──────────────────────────────
+
+# ── Install CPU PyTorch explicitly (single source of truth) ─────
+RUN pip install torch==2.6.0 torchvision==0.21.0 \
+    --index-url https://download.pytorch.org/whl/cpu
+
+# ── Copy application code ───────────────────────────────────────
+COPY plugins/yolo/app/ ./app/
+
+# ── Health check ────────────────────────────────────────────────
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
+
+EXPOSE $PORT
+
+# ── Run from the directory where pyproject.toml exists ─────────
+CMD ["sh", "-c", "poetry run uvicorn app.main:app --host 0.0.0.0 --port $PORT"]

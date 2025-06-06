@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  tableai-yolo-cpu:
+    build:
+      context: ./
+      dockerfile: plugins/yolo/Dockerfile.yolo.cpu
+    image: tableai-yolo-cpu:latest
+    container_name: tableai-yolo-service
+    ports:
+      - "8001:8001"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_CACHE_DIR=/app/models
+      - PORT=8001
+    volumes:
+      # Cache downloaded models to avoid re-downloading
+      - yolo_models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Give time for model download on first run
+    restart: unless-stopped
+    networks:
+      - tableai-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.yolo-api.rule=Host(`yolo.localhost`)"
+      - "traefik.http.services.yolo-api.loadbalancer.server.port=8000"
+    # Resource limits for CPU-only service
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
+volumes:
+  yolo_models:
+    driver: local
+
+networks:
+  tableai-network:
+    driver: bridge
+    name: tableai-network

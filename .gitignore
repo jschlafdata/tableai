@@ -1,0 +1,20 @@
+# Ignore all __pycache__ directories
+__pycache__/
+**/__pycache__/
+
+# Ignore any folders starting with .
+.*/
+!.gitignore  # optionally include .gitignore files
+
+!tableai/dist/tableai-0.1.0-py3-none-any.whl
+# Ignore all .env files in any directory
+.env
+**/.env
+
+# Ignore SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
+# local caches
+api/data/*
