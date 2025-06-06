@@ -535,7 +535,7 @@ test-randomorder = ["pytest-randomly"]
 name = "dateparser"
 version = "1.2.1"
 description = "Date parsing library designed to parse dates from HTML pages"
-optional = true
+optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 markers = "extra == \"datascience\" or extra == \"full\""
@@ -3015,7 +3015,7 @@ files = [
 name = "regex"
 version = "2024.11.6"
 description = "Alternative regular expression module, to replace re."
-optional = true
+optional = false
 python-versions = ">=3.8"
 groups = ["main"]
 markers = "extra == \"datascience\" or extra == \"full\" or extra == \"api\""
@@ -3755,7 +3755,7 @@ files = [
 name = "tzlocal"
 version = "5.3.1"
 description = "tzinfo object for the local timezone"
-optional = true
+optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 markers = "extra == \"datascience\" or extra == \"full\""
@@ -4264,4 +4264,4 @@ integrations = ["dropbox", "google-api-python-client", "jinja2", "ollama", "pyda
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<4.0"
-content-hash = "6fc9400f4d378d6a51cc73fa61a8fed662d8a5cad22bbddab4e2a29f2c73c755"
+content-hash = "efc541dd6d986a18fe07ce70bddbdc79cc21ea52de83fa68eaf08498f2a68e1f"
