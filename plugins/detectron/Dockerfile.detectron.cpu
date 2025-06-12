@@ -1,41 +1,88 @@
 # ────────────────────────────────────────────────────────────────
-# Detectron2 (CPU‑only) image
-# Builds Detectron2 from source with FORCE_CPU=1
+# Detectron2 (CPU-only) image with tableai[detectroncpu], Python 3.10
 # ────────────────────────────────────────────────────────────────
-FROM python:3.11-slim-bullseye
+FROM python:3.10-slim-bullseye
 
-ENV PIP_NO_CACHE_DIR=off \
+ENV \
+    PIP_NO_CACHE_DIR=off \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    FORCE_CPU=1
+    FORCE_CPU=1 \
+    PORT=8000
 
+# 1) Install apt-level dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-        git gcc g++ cmake make \
-        poppler-utils tesseract-ocr libmupdf-dev \
-        libjpeg-dev zlib1g-dev \
-        ghostscript jq curl nano && \
+        git \
+        gcc \
+        g++ \
+        cmake \
+        make \
+        poppler-utils \
+        tesseract-ocr \
+        libmupdf-dev \
+        libjpeg-dev \
+        zlib1g-dev \
+        ghostscript \
+        jq \
+        curl \
+        libgl1-mesa-glx \
+        nano && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# CPU PyTorch
-RUN pip install --no-cache-dir \
-        torch==2.3.0+cpu torchvision==0.18.0+cpu \
+# 2) Upgrade pip early so that "+cpu" wheels are recognized
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
+# 3) Install CPU-only PyTorch 1.13.1 and torchvision 0.14.1
+RUN python3 -m pip install --no-cache-dir \
+        torch==1.13.1+cpu \
+        torchvision==0.14.1+cpu \
         --extra-index-url https://download.pytorch.org/whl/cpu
 
-# Compile Detectron2 in CPU mode
-RUN pip install --no-cache-dir --verbose \
-        'git+https://github.com/facebookresearch/detectron2.git'
+# 4) Install other core Python dependencies for Detectron2
+RUN python3 -m pip install --no-cache-dir \
+        fvcore==0.1.5.post20221221 \
+        Pillow==9.5.0 \
+        pycocotools==2.0.6
 
-# Extra libs + FastAPI
-RUN pip install --no-cache-dir \
-        python-multipart fastapi uvicorn[standard] \
-        pdf2image==1.17.0 pytesseract==0.3.10 \
-        PyMuPDF==1.24.7 Pillow==9.5.0 numpy==1.23.0 pandas==2.0.3 \
-        layoutparser==0.3.4
+# 5) Replace numpy & pandas with the required versions
+RUN python3 -m pip uninstall -y numpy pandas && \
+    python3 -m pip install --no-cache-dir \
+        numpy==1.23.5 \
+        pandas==2.0.3 \
+        ipython==8.33.0 \
+        dateparser==1.2.1 \
+        python-multipart==0.0.20
 
-COPY ./app /app
+# 6) Install cloudpickle and omegaconf
+RUN python3 -m pip install --no-cache-dir \
+        cloudpickle==2.2.0 \
+        omegaconf==2.3.0
 
-EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 7) Install tableai with the detectroncpu extra
+RUN python3 -m pip install --no-cache-dir \
+    "git+https://github.com/jschlafdata/tableai.git@0.0.1#egg=tableai[detectroncpu]"
+
+# 8) Build & install Detectron2 v0.4 in CPU mode
+#    (PIP_NO_BUILD_ISOLATION=1 is required for Detectron2’s custom build)
+RUN PIP_NO_BUILD_ISOLATION=1 python3 -m pip install --no-cache-dir --no-deps --no-build-isolation \
+    "git+https://github.com/facebookresearch/detectron2.git@v0.4#egg=detectron2"
+
+# 9) Install LayoutParser with OCR support
+RUN python3 -m pip install --no-cache-dir \
+        layoutparser[ocr]==0.3.4
+
+# 10) Install FastAPI + Uvicorn
+RUN python3 -m pip install --no-cache-dir \
+        fastapi uvicorn[standard]
+
+# Copy application code into the container
+COPY ./plugins/detectron/app /app
+
+# Expose the FastAPI port
+EXPOSE $PORT
+
+# Default startup command; wrap in sh -c so $PORT is expanded
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port $PORT"]

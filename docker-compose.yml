@@ -38,9 +38,73 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
+  tableai-detectron-cpu:
+    platform: "linux/amd64"
+    build:
+      context: ./
+      dockerfile: plugins/detectron/Dockerfile.detectron.cpu
+    image: tableai-detectron-cpu:latest
+    container_name: tableai-detectron-service
+    ports:
+      - "8002:8002"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_CACHE_DIR=/app/models
+      - PORT=8002
+    volumes:
+      # Cache downloaded models to avoid re-downloading
+      - detectron_models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Give time for model download on first run
+    restart: unless-stopped
+    networks:
+      - tableai-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.detectron-api.rule=Host(`detectron.localhost`)"
+      - "traefik.http.services.detectron-api.loadbalancer.server.port=8002"
+    # Resource limits for CPU-only service
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+  nlm-ingestor:
+    image: ghcr.io/nlmatics/nlm-ingestor:latest
+    container_name: nlm-ingestor-service
+    ports:
+      - "8003:5001"  # exposes port 5001 as shown in Dockerfile
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    networks:
+      - tableai-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.nlm-ingestor.rule=Host(`nlm-ingestor.localhost`)"
+      - "traefik.http.services.nlm-ingestor.loadbalancer.server.port=5001"
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+
 
 volumes:
   yolo_models:
+    driver: local
+  detectron_models:
     driver: local
 
 networks:

@@ -7,8 +7,7 @@ readme = "README.md"
 license = ""
 
 packages = [
-    {include = "app"},
-    {include = "tableai_tools", from = "tools"}
+    {include = "app"}
 ]
 
 [tool.poetry.dependencies]

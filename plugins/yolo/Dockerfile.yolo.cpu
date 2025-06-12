@@ -1,4 +1,3 @@
-
 # ────────────────────────────────────────────────────────────────
 # Standalone YOLO Table Detection Service - CPU Edition
 # ────────────────────────────────────────────────────────────────
@@ -28,7 +27,6 @@ WORKDIR /app
 
 # ── Copy project structure for Poetry to work ──────────────────
 COPY plugins/yolo/pyproject.toml plugins/yolo/poetry.lock ./plugins/yolo/
-COPY tools/ ./plugins/yolo/tools/
 
 # ── Configure Poetry from the correct directory ────────────────
 WORKDIR /app/plugins/yolo
@@ -38,15 +36,17 @@ RUN poetry config virtualenvs.create false
 RUN poetry install --no-dev && \
     rm -rf $POETRY_CACHE_DIR
 
-RUN cp -r ./tools/tableai_tools /usr/local/lib/python3.11/site-packages/
 # ── Show installed Poetry packages ──────────────────────────────
-
 # ── Install CPU PyTorch explicitly (single source of truth) ─────
 RUN pip install torch==2.6.0 torchvision==0.21.0 \
     --index-url https://download.pytorch.org/whl/cpu
 
 # ── Copy application code ───────────────────────────────────────
 COPY plugins/yolo/app/ ./app/
+
+# 5) Install tableai with the detectroncpu extra
+RUN pip install --no-cache-dir \
+    "git+https://github.com/jschlafdata/tableai.git@0.0.1"
 
 # ── Health check ────────────────────────────────────────────────
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

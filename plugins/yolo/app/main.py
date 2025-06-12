@@ -1,158 +1,186 @@
 from __future__ import annotations
 
-import io
+import json
 from typing import List, Dict, Optional, Union
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, UploadFile, HTTPException, Form, File
 from pydantic import BaseModel
-from PIL import Image
-import json
-# Import from tableai.tools (shared utilities)
-from tableai_tools.readers.files import FileReader
-from tableai_tools.pdf.models import PDFModel
-from typing import Optional, Dict, Union
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from pydantic import BaseModel, Field
+from tableai.readers.files import FileReader
+from tableai.pdf.models import PDFModel
 
-# Import local inference
+# Local inference
 from .inference import YOLOTableDetector
 
+# ────────────────────────────────────────────────────────────────
+# FastAPI setup
+# ────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="TableAI YOLO Detection Service",
-    description="Standalone YOLO-based table detection service",
-    version="0.1.0"
+    description="Standalone YOLO-based table detection service (param-compatible with Detectron endpoint)",
+    version="0.2.0"
 )
 
-# Global detector instance
-detector = YOLOTableDetector()
+# Single detector cache (keeps weights on disk / in memory)
+_detector_cache: dict[str, YOLOTableDetector] = {}   # keyed by model_type
 
 
-class DetectionRequest(BaseModel):
-    pdf_file: Optional[UploadFile] = None
-    pdf_path: Optional[str] = None
-    page_number: Optional[int] = None
-    zoom: float = Field(default=2.0, gt=0)
-    coordinate_system: str = "pdf"
-    model_overrides: Optional[Dict[str, Union[float, int, bool]]] = None
-
+# ────────────────────────────────────────────────────────────────
+# Pydantic response models
+# ────────────────────────────────────────────────────────────────
 class DetectionResponse(BaseModel):
     success: bool
     detections: List[Dict[str, Union[int, float, tuple]]] = []
-    page_number: Optional[int] = None
+    page_dimensions: Optional[Dict[int, Dict[str, int]]] = None
+    page_count: Optional[int] = None
     coordinate_system: str = "pdf_points"
+    model_used: str = ""
     message: str = ""
+
 
 class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    model_loaded: bool
+    cached_models: List[str]
 
+
+# ────────────────────────────────────────────────────────────────
+# Utility helpers
+# ────────────────────────────────────────────────────────────────
+def _get_detector(model_type: str) -> YOLOTableDetector:
+    """
+    Return a (cached) YOLOTableDetector for the requested `model_type`.
+    """
+    if model_type not in YOLOTableDetector.AVAILABLE_MODELS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Invalid model_type '{model_type}'. "
+                f"Valid options: {list(YOLOTableDetector.AVAILABLE_MODELS.keys())}"
+            )
+        )
+
+    if model_type not in _detector_cache:
+        _detector_cache[model_type] = YOLOTableDetector(model_type=model_type)
+    return _detector_cache[model_type]
+
+
+# ────────────────────────────────────────────────────────────────
+# Routes
+# ────────────────────────────────────────────────────────────────
 @app.get("/health", response_model=HealthResponse)
-def health():
-    """Health check endpoint"""
+def health() -> HealthResponse:
     return HealthResponse(
         status="healthy",
-        service="tableai-yolo-service", 
-        version="0.1.0",
-        model_loaded=detector.model is not None
+        service="tableai-yolo-service",
+        version="0.2.0",
+        cached_models=list(_detector_cache.keys()),
     )
 
 
 @app.post("/detect/pdf", response_model=DetectionResponse)
 async def detect_pdf(
-    request: DetectionRequest = Depends()
+    # ── parameters copied 1-for-1 from Detectron endpoint ─────────
+    pdf_file: Optional[UploadFile] = File(None),
+    pdf_path: Optional[str] = Form(None),
+    zoom: Optional[str] = Form(None),
+    coordinate_system: Optional[str] = Form(None),
+    model_overrides: Optional[str] = Form(None),
+    selector: Optional[str] = Form(None),
+    dataset: Optional[str] = Form(None),          # keep same name but maps to YOLO model_type
 ):
     """
-    Detect tables in a PDF - handles ALL sources via PDFModel/FileReader
-    
-    Supports:
-    - Upload: pdf_file (multipart upload)
-    - S3: pdf_path="s3://bucket/key.pdf" 
-    - HTTP: pdf_path="https://example.com/file.pdf"
-    - Local: pdf_path="/path/to/file.pdf"
+    Detect tables in a PDF. *Interface identical to Detectron* so front-end /
+    client code can call either service without changes.
+
+    • `dataset`   → which YOLO model to load (keremberke, foduucom, doclaynet).
+    • `selector`  is accepted for parity but **ignored** by YOLO (kept for future use).
     """
+
+    debug_info = {}  # will be appended to `message` for easier troubleshooting
     try:
-        # Determine PDF source - prioritize file upload, then path
-        if request.pdf_file is not None:
-            # Handle uploaded file
-            if not request.pdf_file.content_type == 'application/pdf':
+        zoom_val = float(zoom) if zoom else 2.0
+        coord_system = coordinate_system or "pdf"
+        model_type = dataset or "keremberke"       # default YOLO model
+        debug_info.update(
+            zoom_raw=zoom, zoom_parsed=zoom_val,
+            coordinate_system_raw=coordinate_system, coordinate_system_parsed=coord_system,
+            dataset_raw=dataset, model_type=model_type,
+        )
+        if pdf_file is not None:
+            if pdf_file.content_type != "application/pdf":
                 raise HTTPException(status_code=400, detail="Uploaded file must be a PDF")
-            pdf_bytes = await request.pdf_file.read()
+            pdf_bytes = await pdf_file.read()
             pdf_source = pdf_bytes
-        elif request.pdf_path:
-            # Handle path (S3, HTTP, local) - FileReader determines source automatically
-            pdf_source = request.pdf_path.strip()
+        elif pdf_path:
+            pdf_source = pdf_path.strip()
         else:
             raise HTTPException(status_code=400, detail="Provide either 'pdf_file' or 'pdf_path'")
-        
-        # PDFModel + FileReader handles ALL sources transparently
+
+        overrides = None
+        if model_overrides:
+            try:
+                overrides = json.loads(model_overrides)
+            except json.JSONDecodeError:
+                raise HTTPException(status_code=400, detail="Invalid JSON in model_overrides")
+
         pdf_model = PDFModel(path=pdf_source)
-        
-        # Run detection
-        detection_result = detector.run(
+        detector = _get_detector(model_type)
+        result = detector.run(
             pdf_model,
-            zoom=request.zoom, 
-            model_overrides=request.model_overrides or {}
+            zoom=zoom_val,
+            model_overrides=overrides,
         )
-        
-        # Transform detections to list format
-        detections = []
-        for page, page_detections in detection_result['tbl_coordinates'].items():
-            for bbox in page_detections:
-                detections.append({
-                    'page': page,
-                    'bbox': bbox,
-                    'confidence': 1.0  # Add a default confidence if not available
-                })
-        
+
+        detections: List[Dict[str, Union[int, float, tuple]]] = []
+        for page_num, bbox_list in result["tbl_coordinates"].items():
+            for bbox in bbox_list:
+                detections.append(
+                    {"page": page_num, "bbox": bbox, "confidence": 1.0}
+                )
+
         return DetectionResponse(
             success=True,
             detections=detections,
-            page_number=request.page_number,
-            coordinate_system=request.coordinate_system,
-            message=f"Detected {len(detections)} tables on page {request.page_number}"
+            page_dimensions=result.get("page_dimensions"),
+            page_count=pdf_model.pages,
+            coordinate_system=coord_system,
+            model_used=model_type,
+            message=f"Detected {len(detections)} tables across {pdf_model.pages} pages. "
+                    f"Debug: {debug_info}"
         )
-    
-    except Exception as e:
+
+    except Exception as exc:
         return DetectionResponse(
             success=False,
             detections=[],
-            page_number=request.page_number,
-            message=str(e)
+            page_dimensions=None,
+            page_count=None,
+            coordinate_system=coordinate_system or "pdf",
+            model_used=dataset or "keremberke",
+            message=f"Error: {str(exc)}. Debug: {debug_info}"
         )
 
 
 @app.get("/models/info")
-async def get_model_info():
-    """Get information about the loaded YOLO model"""
+def models_info():
+    """Mirror Detectron `/models/info` shape."""
     return {
-        "model_type": "YOLOv8",
-        "repository": detector.model_type,
-        "task": "table_detection",
-        "confidence_threshold": detector.confidence_threshold,
-        "iou_threshold": detector.iou_threshold,
-        "max_detections": detector.max_detections,
-        "model_loaded": detector.model is not None,
-        "tableai_tools_integration": True,
-        "supported_pdf_sources": [
-            "multipart upload (pdf_file)",
-            "S3 paths (pdf_path='s3://bucket/key')",
-            "HTTP URLs (pdf_path='https://...')",
-            "local paths (pdf_path='/path/to/file.pdf')",
-            "bytes/streams (automatic detection)"
-        ],
+        "available_models": list(YOLOTableDetector.AVAILABLE_MODELS.keys()),
+        "cached_models": list(_detector_cache.keys()),
         "coordinate_systems": ["image_pixels", "pdf_points"],
         "endpoints": {
-            "/detect/image": "Single image detection",
-            "/detect/pdf": "PDF detection (all sources via FileReader)",
-            "/detect/batch": "Batch image processing",
+            "/detect/pdf": "PDF detection (Detectron-compatible interface)",
             "/health": "Health check",
-            "/models/info": "Model information"
-        }
+            "/models/info": "Model information",
+        },
     }
 
+
+# ────────────────────────────────────────────────────────────────
+# Local dev entry point
+# ────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="0.0.0.0", port=8000)

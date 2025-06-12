@@ -1,4 +1,5 @@
 from typing import Optional
+from collections import defaultdict
 from tableai.pdf.query_funcs import (
     try_convert_float, 
     try_convert_percent, 
