@@ -6,7 +6,7 @@ on:
       - dev
 
 permissions:
-  contents: write
+  contents: write  # Required for pushing commits and tags
 
 jobs:
   refresh-tag:
@@ -16,23 +16,37 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Configure Git identity
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Run `poetry lock` and commit if changed
+        run: |
+          poetry lock
+          if ! git diff --quiet poetry.lock; then
+            git add poetry.lock
+            git commit -m "chore: update poetry.lock via GitHub Action"
+            git push origin dev
+          fi
+
       - name: Delete existing tag locally
-        run: |
-          git tag -d dev0.0.1 || true
+        run: git tag -d dev0.0.1 || true
 
-      - name: Delete tag remotely
-        run: |
-          git push origin --delete dev0.0.1 || true
+      - name: Delete remote tag
+        run: git push origin --delete dev0.0.1 || true
 
-      - name: Create tag
+      - name: Create and push new tag
         run: |
           git tag dev0.0.1
-
-      - name: Push tag
-        run: |
           git push origin dev0.0.1
