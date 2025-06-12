@@ -9,7 +9,6 @@ import fitz
 from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field
 from io import BytesIO
 import base64
-from IPython.display import display
 from PIL import Image, ImageDraw
 from enum import Enum
 from dataclasses import dataclass
@@ -26,6 +25,12 @@ from tableai.pdf.query_engine import QueryEngine
 from tableai.readers.files import FileReader  # Import your FileReader
 
 __all__ = ["PDFModel"]
+
+try:
+    from IPython.display import display
+    _IPYTHON_AVAILABLE = True
+except ImportError:
+    _IPYTHON_AVAILABLE = False
 
 class PDFModel(BaseModel):
     path: Union[str, Path, bytes, bytearray]
@@ -338,44 +343,46 @@ class PDFModel(BaseModel):
             box_color (str): Outline color of highlight boxes.
             box_width (int): Outline width.
         """
-        # Render base64 image
-        img_base64 = self.get_page_base64(page_number=page_number, bounds=crop_box, combined=combined)
-        img_bytes = base64.b64decode(img_base64)
-        img = Image.open(BytesIO(img_bytes)).convert("RGB")
-        draw = ImageDraw.Draw(img)
+        if _IPYTHON_AVAILABLE:
+            # Render base64 image
+            img_base64 = self.get_page_base64(page_number=page_number, bounds=crop_box, combined=combined)
+            img_bytes = base64.b64decode(img_base64)
+            img = Image.open(BytesIO(img_bytes)).convert("RGB")
+            draw = ImageDraw.Draw(img)
 
-        # Determine scaling from PDF points to image pixels
-        if combined == True:
-            page_height = self.combined_doc[page_number].rect.height
-            page_width = self.combined_doc[page_number].rect.width
+            # Determine scaling from PDF points to image pixels
+            if combined == True:
+                page_height = self.combined_doc[page_number].rect.height
+                page_width = self.combined_doc[page_number].rect.width
+            else:
+                page_height = self.doc[page_number].rect.height
+                page_width = self.doc[page_number].rect.width
+            zoom = 1.0
+
+            if crop_box:
+                crop_width = crop_box[2] - crop_box[0]
+                crop_height = crop_box[3] - crop_box[1]
+            else:
+                crop_width = page_width
+                crop_height = page_height
+
+            scale_x = img.width / crop_width
+            scale_y = img.height / crop_height
+            offset_x = crop_box[0] if crop_box else 0
+            offset_y = crop_box[1] if crop_box else 0
+
+            if highlight_boxes:
+                for x0, y0, x1, y1 in highlight_boxes:
+                    box = [
+                        (x0 - offset_x) * scale_x,
+                        (y0 - offset_y) * scale_y,
+                        (x1 - offset_x) * scale_x,
+                        (y1 - offset_y) * scale_y,
+                    ]
+                    draw.rectangle(box, outline=box_color, width=box_width)
+            display(img)
         else:
-            page_height = self.doc[page_number].rect.height
-            page_width = self.doc[page_number].rect.width
-        zoom = 1.0
-
-        if crop_box:
-            crop_width = crop_box[2] - crop_box[0]
-            crop_height = crop_box[3] - crop_box[1]
-        else:
-            crop_width = page_width
-            crop_height = page_height
-
-        scale_x = img.width / crop_width
-        scale_y = img.height / crop_height
-        offset_x = crop_box[0] if crop_box else 0
-        offset_y = crop_box[1] if crop_box else 0
-
-        if highlight_boxes:
-            for x0, y0, x1, y1 in highlight_boxes:
-                box = [
-                    (x0 - offset_x) * scale_x,
-                    (y0 - offset_y) * scale_y,
-                    (x1 - offset_x) * scale_x,
-                    (y1 - offset_y) * scale_y,
-                ]
-                draw.rectangle(box, outline=box_color, width=box_width)
-
-        display(img)
+            print(f'Ipython Dependency must be enabled.')
     
     def transform_bbox_coordinates_simple(
         self,
