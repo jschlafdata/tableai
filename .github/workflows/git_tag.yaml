@@ -32,4 +32,4 @@ jobs:
 
       - name: Push tag
         run: |
-          git push origin dev0.0.1
+          git push origin dev
