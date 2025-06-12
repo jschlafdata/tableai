@@ -1,0 +1,35 @@
+name: Refresh dev tag
+
+on:
+  push:
+    branches:
+      - dev
+
+jobs:
+  refresh-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure Git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Delete existing tag locally
+        run: |
+          git tag -d dev0.0.1 || true
+
+      - name: Delete tag remotely
+        run: |
+          git push origin --delete dev0.0.1 || true
+
+      - name: Create tag
+        run: |
+          git tag dev0.0.1
+
+      - name: Push tag
+        run: |
+          git push origin dev0.0.1

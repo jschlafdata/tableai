@@ -5,6 +5,7 @@ __pycache__/
 # Ignore any folders starting with .
 .*/
 !.gitignore  # optionally include .gitignore files
+!.github
 
 !tableai/dist/tableai-0.1.0-py3-none-any.whl
 # Ignore all .env files in any directory
