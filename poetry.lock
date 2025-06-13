@@ -571,7 +571,7 @@ description = "Date parsing library designed to parse dates from HTML pages"
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"datascience\" or extra == \"full\""
+markers = "extra == \"core\" or extra == \"datascience\" or extra == \"full\""
 files = [
     {file = "dateparser-1.2.1-py3-none-any.whl", hash = "sha256:bdcac262a467e6260030040748ad7c10d6bacd4f3b9cdb4cfd2251939174508c"},
     {file = "dateparser-1.2.1.tar.gz", hash = "sha256:7e4919aeb48481dbfc01ac9683c8e20bfe95bb715a38c1e9f6af889f4f30ccc3"},
@@ -3245,7 +3245,7 @@ description = "World timezone definitions, modern and historical"
 optional = false
 python-versions = "*"
 groups = ["main"]
-markers = "extra == \"datascience\" or extra == \"full\" or extra == \"detectroncpu\" or extra == \"core\""
+markers = "extra == \"core\" or extra == \"datascience\" or extra == \"full\" or extra == \"detectroncpu\""
 files = [
     {file = "pytz-2025.2-py2.py3-none-any.whl", hash = "sha256:5ddf76296dd8c44c26eb8f4b6f35488f3ccbf6fbbd7adee0b7262d43f0ec2f00"},
     {file = "pytz-2025.2.tar.gz", hash = "sha256:360b9e3dbb49a209c21ad61809c7fb453643e048b38924c765813546746e81c3"},
@@ -3346,7 +3346,7 @@ description = "Alternative regular expression module, to replace re."
 optional = false
 python-versions = ">=3.8"
 groups = ["main"]
-markers = "extra == \"datascience\" or extra == \"full\" or extra == \"api\""
+markers = "extra == \"core\" or extra == \"datascience\" or extra == \"full\" or extra == \"api\""
 files = [
     {file = "regex-2024.11.6-cp310-cp310-macosx_10_9_universal2.whl", hash = "sha256:ff590880083d60acc0433f9c3f713c51f7ac6ebb9adf889c79a261ecf541aa91"},
     {file = "regex-2024.11.6-cp310-cp310-macosx_10_9_x86_64.whl", hash = "sha256:658f90550f38270639e83ce492f27d2c8d2cd63805c65a13a14d36ca126753f0"},
@@ -4152,7 +4152,7 @@ description = "Provider of IANA time zone data"
 optional = false
 python-versions = ">=2"
 groups = ["main"]
-markers = "(extra == \"datascience\" or extra == \"full\" or extra == \"detectroncpu\" or extra == \"core\") and (platform_system == \"Windows\" or extra == \"detectroncpu\" or extra == \"core\")"
+markers = "(extra == \"core\" or extra == \"datascience\" or extra == \"full\" or extra == \"detectroncpu\") and (platform_system == \"Windows\" or extra == \"detectroncpu\" or extra == \"core\")"
 files = [
     {file = "tzdata-2025.2-py2.py3-none-any.whl", hash = "sha256:1a403fada01ff9221ca8044d701868fa132215d84beb92242d9acd2147f667a8"},
     {file = "tzdata-2025.2.tar.gz", hash = "sha256:b60a638fcc0daffadf82fe0f57e53d06bdec2f36c4df66280ae79bce6bd6f2b9"},
@@ -4165,7 +4165,7 @@ description = "tzinfo object for the local timezone"
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
-markers = "extra == \"datascience\" or extra == \"full\""
+markers = "extra == \"core\" or extra == \"datascience\" or extra == \"full\""
 files = [
     {file = "tzlocal-5.3.1-py3-none-any.whl", hash = "sha256:eb1a66c3ef5847adf7a834f1be0800581b683b5608e74f86ecbcef8ab91bb85d"},
     {file = "tzlocal-5.3.1.tar.gz", hash = "sha256:cceffc7edecefea1f595541dbd6e990cb1ea3d19bf01b2809f362a03dd7921fd"},
@@ -4729,7 +4729,7 @@ PyYAML = "*"
 
 [extras]
 api = ["PyJWT", "async-openai", "bcrypt", "fastapi", "openai", "psycopg2-binary", "sqlmodel", "uvicorn"]
-core = ["numpy", "ocrmypdf", "pandas", "pillow"]
+core = ["dateparser", "numpy", "ocrmypdf", "pandas", "pillow"]
 datascience = ["dateparser", "psutil", "scikit-learn", "scipy"]
 detectroncpu = ["fvcore", "iopath", "layoutparser", "pycocotools"]
 dev = ["ipython", "pytest", "pytest-mock"]
@@ -4739,4 +4739,4 @@ integrations = ["dropbox", "google-api-python-client", "jinja2", "ollama", "pyda
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.9,<4.0"
-content-hash = "e057275c1fb6372395d147b4a9ebb8e58bc7c1048368e84be6ba7ffb2ace2c70"
+content-hash = "8839ec831ad42b17994bc9fb0ebfd8b9ca3229076c00eedd20edc66459c4368c"

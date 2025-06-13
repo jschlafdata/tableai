@@ -58,7 +58,7 @@ numpy = { version = ">=2.2.1", optional = true, markers = "python_version >= '3.
 pandas = { version = ">=2.2.3", optional = true }
 
 [tool.poetry.extras]
-core = ["pillow", "ocrmypdf", "numpy", "pandas"]
+core = ["pillow", "ocrmypdf", "numpy", "pandas", "dateparser"]
 detectroncpu = ["fvcore", "iopath", "pycocotools", "layoutparser"]
 
 # Service/API extras
