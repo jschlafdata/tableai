@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from typing import List, Dict, Optional, Union
+from typing import List, Dict, Optional, Union, Any
 
 from fastapi import FastAPI, UploadFile, HTTPException, Form, File
 from pydantic import BaseModel
@@ -29,7 +29,7 @@ _detector_cache: dict[str, YOLOTableDetector] = {}   # keyed by model_type
 # ────────────────────────────────────────────────────────────────
 class DetectionResponse(BaseModel):
     success: bool
-    detections: List[Dict[str, Union[int, float, tuple]]] = []
+    detections: Any = []
     page_dimensions: Optional[Dict[int, Dict[str, int]]] = None
     page_count: Optional[int] = None
     coordinate_system: str = "pdf_points"
@@ -61,7 +61,7 @@ def _get_detector(model_type: str) -> YOLOTableDetector:
         )
 
     if model_type not in _detector_cache:
-        _detector_cache[model_type] = YOLOTableDetector(model_type=model_type)
+        _detector_cache[model_type] = YOLOTableDetector()
     return _detector_cache[model_type]
 
 
@@ -130,6 +130,7 @@ async def detect_pdf(
             pdf_model,
             zoom=zoom_val,
             model_overrides=overrides,
+            model_name=model_type
         )
 
         detections: List[Dict[str, Union[int, float, tuple]]] = []
@@ -141,7 +142,7 @@ async def detect_pdf(
 
         return DetectionResponse(
             success=True,
-            detections=detections,
+            detections=result,
             page_dimensions=result.get("page_dimensions"),
             page_count=pdf_model.pages,
             coordinate_system=coord_system,

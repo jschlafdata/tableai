@@ -38,6 +38,45 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
+  tableai-classifier-cpu:
+    build:
+      context: ./
+      dockerfile: plugins/classifier/Dockerfile.classifier.cpu
+    image: tableai-classifier-cpu:latest
+    container_name: tableai-classifier-service
+    tty: true        # allocate a pseudo-TTY
+    stdin_open: true
+    ports:
+      - "8005:8005"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_CACHE_DIR=/app/models
+      - PORT=8005
+    volumes:
+      # Cache downloaded models to avoid re-downloading
+      - classifier_models:/app/models
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s  # Give time for model download on first run
+    restart: unless-stopped
+    networks:
+      - tableai-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.classifier-api.rule=Host(`classifier.localhost`)"
+      - "traefik.http.services.classifier-api.loadbalancer.server.port=8005"
+    # Resource limits for CPU-only service
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
   tableai-detectron-cpu:
     platform: "linux/amd64"
     build:
@@ -100,11 +139,12 @@ services:
           cpus: '1.0'
           memory: 2G
 
-
 volumes:
   yolo_models:
     driver: local
   detectron_models:
+    driver: local
+  classifier_models:
     driver: local
 
 networks:
