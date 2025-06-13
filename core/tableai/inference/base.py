@@ -173,10 +173,11 @@ class VisionInferenceClient:
         timeout: int = 60,
         max_retries: int = 2,
         verbose: bool = False,
-        clip_rect: Optional[List[int]] = None
+        clip_rect: Optional[List[int]] = None,
+        combined: Optional[bool] = False
     ) -> Union[OutputModelT, Dict[str, Any]]:
         model = model_name or self.default_model
-        page_b64 = pdf_model.get_page_base64(page_number, zoom=2.0, bounds=clip_rect)
+        page_b64 = pdf_model.get_page_base64(page_number, zoom=2.0, bounds=clip_rect, combined=combined)
         messages = self.build_message_history(prompt, page_b64)
 
         last_err = None
@@ -230,7 +231,8 @@ class VisionInferenceClient:
                 Dict[int, List[List[float]]], 
                 List[tuple[int, List[float]]]
             ]
-        ] = None
+        ] = None,
+        combined: Optional[bool] = False
     ) -> List[Union[OutputModelT, Dict[str, Any]]]:
         """
         Process pages of a PDF, optionally with multiple clip regions per page.
@@ -264,7 +266,8 @@ class VisionInferenceClient:
                         timeout=timeout,
                         max_retries=max_retries,
                         verbose=verbose,
-                        clip_rect=bounds
+                        clip_rect=bounds,
+                        combined=combined
                     )
                     results.append(res)
                     if verbose:
