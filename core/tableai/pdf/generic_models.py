@@ -6,6 +6,8 @@ from tableai.pdf.coordinates import (
     Geometry,
     CoordinateMapping
 )
+from typing import Generic, TypeVar, List, Dict, Any, Callable, Optional, Tuple, Union
+from copy import deepcopy
 
 class GenericFunctionParams(BaseModel):
     """
@@ -216,8 +218,185 @@ class GroupOps:
         return delimiter.join(group.group_text)
 
 
-# --- Accessor for GroupbyQueryResult ---
+class GroupChain:
+    """Chainable processor for GroupbyQueryResult objects with pandas-style API."""
+    
+    def __init__(self, data: List['GroupbyQueryResult']):
+        self._data = data
+        self._result_data = None  # Will hold processed dictionaries
+        
+    def include(self, fields: Union[str, List[str]]) -> 'GroupChain':
+        """
+        Include fields from the original group objects.
+        
+        Args:
+            fields: Field name(s) to include from group objects
+            
+        Returns:
+            New GroupChain instance for continued chaining
+        """
+        if isinstance(fields, str):
+            fields = [fields]
+            
+        # Initialize result data if not already done
+        if self._result_data is None:
+            self._result_data = [{'group_id': group.group_id} for group in self._data]
+        
+        # Create new chain with copied data
+        new_chain = GroupChain(self._data)
+        new_chain._result_data = deepcopy(self._result_data)
+        
+        # Add requested fields
+        for i, group in enumerate(self._data):
+            for field_name in fields:
+                if hasattr(group, field_name):
+                    new_chain._result_data[i][field_name] = getattr(group, field_name)
+                    
+        return new_chain
+    
+    def agg(self, aggregations: Dict[str, Callable]) -> 'GroupChain':
+        """
+        Apply aggregation functions to compute new fields.
+        
+        Args:
+            aggregations: Dictionary of {field_name: aggregation_function}
+            
+        Returns:
+            New GroupChain instance for continued chaining
+        """
+        # Initialize result data if not already done
+        if self._result_data is None:
+            self._result_data = [{'group_id': group.group_id} for group in self._data]
+            
+        # Create new chain with copied data
+        new_chain = GroupChain(self._data)
+        new_chain._result_data = deepcopy(self._result_data)
+        
+        # Apply aggregations
+        for i, group in enumerate(self._data):
+            for field_name, agg_func in aggregations.items():
+                new_chain._result_data[i][field_name] = agg_func(group)
+                
+        return new_chain
+    
+    def filter(self, condition: Callable[[Dict[str, Any]], bool]) -> 'GroupChain':
+        """
+        Filter groups based on a condition function.
+        
+        Args:
+            condition: Function that takes a result dict and returns bool
+            
+        Returns:
+            New GroupChain instance for continued chaining
+        """
+        if self._result_data is None:
+            raise ValueError("Must call include() or agg() before filter()")
+            
+        # Create new chain with filtered data
+        new_chain = GroupChain([])
+        new_chain._result_data = []
+        
+        filtered_groups = []
+        for i, result_dict in enumerate(self._result_data):
+            if condition(result_dict):
+                new_chain._result_data.append(deepcopy(result_dict))
+                filtered_groups.append(self._data[i])
+                
+        new_chain._data = filtered_groups
+        return new_chain
+    
+    def query(self, condition: str) -> 'GroupChain':
+        """
+        Filter using a pandas-style query string (simplified version).
+        
+        Args:
+            condition: Query condition as string (e.g., "merged_bbox_rel_y < 100")
+            
+        Returns:
+            New GroupChain instance for continued chaining
+        """
+        # This is a simplified implementation - you could use pandas.eval for full functionality
+        def eval_condition(row_dict):
+            # Create a safe evaluation context with the row data
+            local_vars = row_dict.copy()
+            try:
+                return eval(condition, {"__builtins__": {}}, local_vars)
+            except:
+                return False
+                
+        return self.filter(eval_condition)
+    
+    def assign(self, **kwargs) -> 'GroupChain':
+        """
+        Create new columns using keyword arguments (pandas-style).
+        
+        Args:
+            **kwargs: Column_name=function pairs
+            
+        Returns:
+            New GroupChain instance for continued chaining
+        """
+        return self.agg(kwargs)
+    
+    def to_list(self) -> List[Dict[str, Any]]:
+        """
+        Return the processed data as a list of dictionaries.
+        
+        Returns:
+            List of processed group dictionaries
+        """
+        if self._result_data is None:
+            # If no processing was done, return basic group info
+            return [{'group_id': group.group_id} for group in self._data]
+        return self._result_data.copy()
+    
+    def to_dict(self, orient: str = 'records') -> Union[List[Dict], Dict[str, List]]:
+        """
+        Convert to dictionary in various formats (pandas-style).
+        
+        Args:
+            orient: 'records' (list of dicts) or 'dict' (dict of lists)
+            
+        Returns:
+            Data in requested format
+        """
+        data = self.to_list()
+        
+        if orient == 'records':
+            return data
+        elif orient == 'dict':
+            if not data:
+                return {}
+            result = {}
+            for key in data[0].keys():
+                result[key] = [row.get(key) for row in data]
+            return result
+        else:
+            raise ValueError(f"Unsupported orient: {orient}")
+    
+    def head(self, n: int = 5) -> List[Dict[str, Any]]:
+        """Return first n results (pandas-style)."""
+        return self.to_list()[:n]
+    
+    def __len__(self) -> int:
+        """Return number of groups after filtering."""
+        if self._result_data is None:
+            return len(self._data)
+        return len(self._result_data)
+    
+    def __repr__(self) -> str:
+        """String representation showing current state."""
+        return f"GroupChain({len(self)} groups)"
+
+
+# --- Updated GroupAccessor with chaining support ---
 class GroupAccessor(BaseAccessor['GroupbyQueryResult']):
+    
+    @property
+    def chain(self) -> GroupChain:
+        """Access the chainable interface."""
+        return GroupChain(self._data)
+    
     def process(
         self,
         aggregations: Optional[Dict[str, Callable]] = None,
@@ -226,16 +405,8 @@ class GroupAccessor(BaseAccessor['GroupbyQueryResult']):
         **kwargs
     ) -> List[Dict[str, Any]]:
         """
-        Processes each group in the ResultSet, returning a filtered list of structured dictionaries.
-        
-        Args:
-            aggregations: Dictionary of {field_name: aggregation_function} to compute new fields
-            filters: List of filter functions that receive the full output dict and return bool
-            include: List of original field names to include from the group object
-            **kwargs: Additional parameters (for future extensibility)
-        
-        Returns:
-            List of dictionaries with processed group data
+        Legacy method for backward compatibility.
+        Consider using the chain interface instead.
         """
         # Use provided parameters or defaults
         aggregations = aggregations or {}
@@ -272,7 +443,6 @@ class GroupAccessor(BaseAccessor['GroupbyQueryResult']):
     def get_text(self) -> list[list[str]]:
         """Returns a list of the text lists for each group."""
         return self.apply(lambda item: item.group_text)
-
 
 # --- Accessor for DefaultQueryResult ---
 class DefaultAccessor(BaseAccessor['DefaultQueryResult']):

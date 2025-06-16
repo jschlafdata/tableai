@@ -103,16 +103,16 @@ class GroupbyTransform:
                 if item_key in self.AGGREGATE_MAPPING:
                     summary[self.AGGREGATE_MAPPING[item_key]] = []
                 # Special handling for "text"
-                elif item_key in ["text", "normalized_text"]:
-                    summary["group_text"] = []
+                # elif item_key in ["text", "normalized_text"]:
+                #     summary["group_text"] = []
             
             # Iterate through rows once to populate the lists
             for row in group_rows:
-                # Handle special "text" case
-                if "text" in self.include and row.get("key") == "text":
-                    summary["group_text"].append(row.get("value"))
-                if "normalized_text" in self.include and row.get("key") == "normalized_text":
-                    summary["group_text"].append(row.get("value"))
+                # # Handle special "text" case
+                # if "text" in self.include and row.get("key") == "text":
+                #     summary["group_text"].append(row.get("value"))
+                # if "normalized_text" in self.include and row.get("key") == "normalized_text":
+                #     summary["group_text"].append(row.get("value"))
                 
                 # Handle standard aggregations
                 for item_key in self.include:
