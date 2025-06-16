@@ -267,12 +267,7 @@ class PDFModel(BaseModel):
         if self.virtual_page_metadata:
             self.vpm = VirtualPageManager(self.virtual_page_metadata)
         else:
-            raise ValueError("Failed to generate virtual page metadata.")
-
-        # 3. Construct virtual‑aware text index
-        self.line_index = LineTextIndex.from_document(
-            self.doc, virtual_page_metadata=self.virtual_page_metadata
-        )
+            raise ValueError("Failed to generate virtual page metadata.")        
 
         # 4. Extract key PDF metadata
         trailer = self.doc.pdf_trailer()
@@ -280,8 +275,10 @@ class PDFModel(BaseModel):
         md = self.doc.metadata
         wanted = ("creator", "title", "author", "subject", "keywords")
         self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
-
         original_doc.close()
+
+        self.line_index = LineTextIndex.from_pdf_model(self)
+        
         return self
 
     # --------------------------------------------------------------------- #
@@ -639,7 +636,6 @@ class PDFModel(BaseModel):
     def __iter__(self):
         """Yield virtual page indices (0‑based)."""
         yield from range(self.pages)
-
 
 
 

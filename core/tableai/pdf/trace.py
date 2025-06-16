@@ -1007,3 +1007,200 @@ class TraceableWorkflow:
         if not self.last_trace:
             print("No workflow has been run yet.")
         return self.last_trace
+
+
+# from __future__ import annotations
+
+# import inspect
+# import textwrap
+# from typing import Any, Callable, Dict, List, Optional
+
+# try:
+#     # Optional import – only needed when you pass Pydantic models
+#     from pydantic import BaseModel
+# except ImportError:   # pragma: no cover
+#     BaseModel = object    # type: ignore
+
+
+# # ---------- helper ---------------------------------------------------------- #
+# def _callable_payload(fn: Callable) -> Dict[str, Any]:
+#     """
+#     Represent a callable as a serialisable payload.
+
+#     Returned structure is intentionally simple so it can be carried around in
+#     the trace dictionary and later re‑hydrated / pretty‑printed by a renderer.
+#     """
+#     label = getattr(fn, "__qualname__", getattr(fn, "__name__", str(fn)))
+#     src = None
+#     try:
+#         src = textwrap.dedent(inspect.getsource(fn)).strip()
+#     except (OSError, TypeError):  # built‑ins, C‑extensions, lambdas built in REPL
+#         pass
+
+#     closure_vars: Dict[str, Any] | None = None
+#     if fn.__closure__:
+#         closure_vars = {
+#             cellvar: cell.cell_contents
+#             for cellvar, cell in zip(fn.__code__.co_freevars, fn.__closure__)
+#         }
+
+#     return {
+#         "label": label,
+#         "source": src,
+#         "closure_vars": closure_vars,
+#         "is_lambda": fn.__name__ == "<lambda>",
+#     }
+
+
+# # ---------- core TraceLog --------------------------------------------------- #
+# class TraceLog:
+#     """
+#     Lightweight execution trace.
+
+#     • Records every step (name, callable, parameters, result length, description)
+#     • Stores arbitrary metadata (e.g. images) via `add_metadata`
+#     • Extracts the unique user‑defined functions involved in a run
+#     • Returns all data as plain Python structures (dictionaries / lists)
+#     """
+
+#     def __init__(self) -> None:
+#         self.steps: List[Dict[str, Any]] = []
+#         self.metadata: Dict[str, Any] = {}
+
+#     # --------------------------------------------------------------------- #
+#     # public helpers
+#     # --------------------------------------------------------------------- #
+#     def add_metadata(self, metadata: Dict[str, Any]) -> None:
+#         """Merge arbitrary metadata into the trace (e.g. base64 images)."""
+#         self.metadata.update(metadata)
+
+#     def run_and_log_step(
+#         self,
+#         step_name: str,
+#         function: Callable,
+#         *,
+#         log_function: Optional[Callable] = None,
+#         params: Optional[Dict[str, Any] | BaseModel] = None,
+#         description: Optional[str] = None,
+#     ) -> Any:
+#         """
+#         Execute `function`, record a step, and return the result.
+
+#         `log_function` lets you separate “execution callable” from the callable
+#         that should be captured in the trace (useful when executing lambdas that
+#         delegate to real functions).
+#         """
+#         result = function()
+
+#         if log_function:
+#             func_to_log = log_function
+#             composite_name = (
+#                 f"lambda → {getattr(log_function, '__qualname__', log_function.__name__)}"
+#             )
+#         else:
+#             func_to_log = getattr(function, "func", function)  # unwrap functools.partial
+#             composite_name = None
+
+#         self.add_step(
+#             step_name=step_name,
+#             function=func_to_log,
+#             params=params,
+#             result=result,
+#             description=description,
+#             composite_name=composite_name,
+#         )
+#         return result
+
+#     def to_dict(self) -> Dict[str, Any]:
+#         """Retrieve the complete, serialisable trace."""
+#         return {"steps": self.steps, "metadata": self.metadata}
+
+#     # --------------------------------------------------------------------- #
+#     # core recording
+#     # --------------------------------------------------------------------- #
+#     def add_step(
+#         self,
+#         *,
+#         step_name: str,
+#         function: Callable,
+#         params: Optional[Dict[str, Any] | BaseModel] = None,
+#         result: Any = None,
+#         description: Optional[str] = None,
+#         composite_name: Optional[str] = None,
+#     ) -> None:
+#         """Append a step entry to `self.steps`."""
+#         raw_params = (
+#             params.model_dump(mode="json") if isinstance(params, BaseModel) else params
+#         )
+#         serialised_params = self._serialize_parameters(raw_params)
+
+#         if isinstance(serialised_params, dict):
+#             # Drop keys with value None to keep the trace concise
+#             serialised_params = {
+#                 k: v for k, v in serialised_params.items() if v is not None
+#             }
+
+#         self.steps.append(
+#             {
+#                 "step_name": step_name,
+#                 "function_obj": function,  # keep the live object for later
+#                 "function_name": composite_name
+#                 or getattr(function, "__name__", str(function)),
+#                 "parameters": serialised_params,
+#                 "description": description
+#                 or textwrap.dedent(function.__doc__ or "").strip(),
+#                 "output_count": len(result)
+#                 if hasattr(result, "__len__")
+#                 else (1 if result is not None else 0),
+#             }
+#         )
+
+#     # --------------------------------------------------------------------- #
+#     # parameter serialisation
+#     # --------------------------------------------------------------------- #
+#     def _serialize_parameters(self, obj: Any) -> Any:
+#         """Recursively walk `obj`, replacing callables with a payload dict."""
+#         if callable(obj):
+#             return _callable_payload(obj)
+
+#         if isinstance(obj, dict):
+#             return {k: self._serialize_parameters(v) for k, v in obj.items()}
+#         if isinstance(obj, list):
+#             return [self._serialize_parameters(v) for v in obj]
+#         return obj
+
+#     # --------------------------------------------------------------------- #
+#     # analysis helpers
+#     # --------------------------------------------------------------------- #
+#     def _extract_global_functions(self) -> Dict[str, Dict[str, Any]]:
+#         """
+#         Return a mapping {function_name: {description, sample_params}} extracted
+#         from all recorded steps.  Lambdas used *directly* are ignored – but
+#         lambdas that delegate (via `lambda → func_name`) are resolved to
+#         `func_name`.
+#         """
+#         functions: Dict[str, Dict[str, Any]] = {}
+
+#         for step in self.steps:
+#             func_obj = step.get("function_obj")
+#             if not callable(func_obj):
+#                 continue
+
+#             func_name = step["function_name"]
+
+#             # Skip pure lambdas (no right‑hand side)
+#             if func_name.startswith("<lambda"):
+#                 continue
+#             if func_name.startswith("lambda") and "→" not in func_name:
+#                 continue
+
+#             # Use right‑hand side of composite names (lambda → real_fn)
+#             display_name = func_name.split("→")[-1].strip()
+
+#             if display_name not in functions:
+#                 functions[display_name] = {
+#                     "description": textwrap.dedent(func_obj.__doc__ or "").strip(),
+#                     "sample_params": step["parameters"],
+#                 }
+
+#         return functions

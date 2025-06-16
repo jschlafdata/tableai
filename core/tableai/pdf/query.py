@@ -17,6 +17,11 @@ from tableai.pdf.generic_models import (
     ResultSet
 )
 
+from tableai.pdf.models import (
+    CoordinateMapping, 
+    VirtualPageManager
+)
+
 # Add this new class to your file
 class GroupbyTransform:
     """A callable object that encapsulates the logic and parameters of a groupby operation."""
@@ -186,31 +191,33 @@ class QueryParams(BaseModel):
         return value
 
 class LineTextIndex:
-    """Improved LineTextIndex with proper virtual page mapping."""
+    """Improved LineTextIndex that leverages VirtualPageManager for coordinate handling."""
     
     FONT_ATTRS = ['size', 'flags', 'bidi', 'char_flags', 'font', 'color', 'alpha']
 
-    def __init__(self, data: List[Tuple[int, str, Any, Dict[str, Any]]], 
+    def __init__(self, 
+                 data: List[Tuple[int, str, Any, Dict[str, Any]]], 
                  page_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
-                 virtual_page_metadata=None, **kwargs):
-        """Initialize with proper virtual page support."""
+                 vpm: Optional[VirtualPageManager] = None,
+                 **kwargs):
+        """Initialize with VirtualPageManager for coordinate operations."""
+        
         # Convert input format to internal format
         self.raw = [(row[0], i, row[1], row[2], row[3]) for i, row in enumerate(data)]
-        
         self.page_metadata = page_metadata or {}
-        self.virtual_page_metadata = virtual_page_metadata or {}
         
-        # Build virtual page lookup for efficient y-coordinate to page mapping
-        self._virtual_breaks = []
-        if self.virtual_page_metadata and "page_breaks" in self.virtual_page_metadata:
-            self._virtual_breaks = sorted(self.virtual_page_metadata["page_breaks"])
-
+        # NEW: Use the provided VirtualPageManager instead of recreating logic
+        self.vpm = vpm
+        if not self.vpm:
+            raise ValueError("VirtualPageManager is required for proper coordinate handling")
+        
+        # Initialize text processing components
         self.text_normalizer = kwargs.get('text_normalizer', 
             TextNormalizer(patterns={
                 r'page\s*\d+\s*of\s*\d+': 'page xx of xx',
                 r'page\s*\d+': 'page xx'
             }, 
-            description='Normalizes text using a set of regex substitutions. This is used in the index to create index items with the key=[]')
+            description='Normalizes text using regex substitutions.')
         )
         self.whitespace_generator = kwargs.get('whitespace_generator', 
             WhitespaceGenerator(min_gap=5.0)
@@ -227,42 +234,86 @@ class LineTextIndex:
             "max_x": float("-inf"), "max_y": float("-inf")
         })
         self.restriction_store: Dict[str, List[Tuple[float, ...]]] = {}
+        
+        # Build the index
         self._build_index()
 
-    def _get_virtual_page_num(self, y0: float) -> int:
-        """Efficiently determines virtual page number for a y-coordinate."""
-        if not self._virtual_breaks:
-            return 0
+    @classmethod
+    def from_pdf_model(cls, pdf_model: 'PDFModel', **kwargs):
+        """
+        Create LineTextIndex from a PDFModel, reusing its VirtualPageManager.
         
-        # Binary search for the correct virtual page
-        left, right = 0, len(self._virtual_breaks) - 1
-        result_page = 0
+        This is the preferred initialization method as it avoids duplicating
+        virtual page logic and ensures consistency with the PDF model.
+        """
+        if not pdf_model.doc:
+            raise ValueError("PDFModel document not loaded")
         
-        while left <= right:
-            mid = (left + right) // 2
-            y_start, page_num = self._virtual_breaks[mid]
+        if len(pdf_model.doc) != 1:
+            raise ValueError(f"Expected combined document with 1 page, got {len(pdf_model.doc)} pages")
+        
+        if not pdf_model.vpm:
+            raise ValueError("PDFModel must have initialized VirtualPageManager")
             
-            if y0 >= y_start:
-                result_page = page_num
-                left = mid + 1
-            else:
-                right = mid - 1
+        page = pdf_model.doc[0]
+        text_dict = page.get_text("dict")
+        flattened_data = cls.flatten_fitz_dict(text_dict, page_num=0)
         
-        return result_page
+        page_metadata = {0: {"width": page.rect.width, "height": page.rect.height}}
+            
+        return cls(
+            data=flattened_data,
+            page_metadata=page_metadata,
+            vpm=pdf_model.vpm,  # Reuse the VirtualPageManager!
+            **kwargs
+        )
 
-    def get_virtual_page_coords(self, bbox):
-        y0 = bbox[1]
-        virtual_page = self._get_virtual_page_num(y0)
-        x0, y0, page_width, y1 = self.virtual_page_metadata['page_bounds'][virtual_page]
-        bounds = [x0, y0, page_width, y1]
-        return bounds, virtual_page
+    @classmethod  
+    def from_document(cls, doc: fitz.Document, virtual_page_metadata: Optional[dict] = None, **kwargs):
+        """
+        Legacy method for backward compatibility.
+        Creates a new VirtualPageManager from metadata.
+        """
+        if len(doc) != 1:
+            raise ValueError(f"Expected combined document with 1 page, got {len(doc)} pages")
+        
+        # Create a new VirtualPageManager for this instance
+        vpm = VirtualPageManager(virtual_page_metadata) if virtual_page_metadata else None
+        if not vpm:
+            raise ValueError("virtual_page_metadata is required when not using from_pdf_model()")
+            
+        page = doc[0]
+        text_dict = page.get_text("dict")
+        flattened_data = cls.flatten_fitz_dict(text_dict, page_num=0)
+        
+        page_metadata = {0: {"width": page.rect.width, "height": page.rect.height}}
+            
+        return cls(
+            data=flattened_data,
+            page_metadata=page_metadata,
+            vpm=vpm,
+            **kwargs
+        )
 
-    def get_virtual_page_wh(self, bbox):
-        bounds, virtual_page = self.get_virtual_page_coords(bbox)
-        x0, y0, page_width, y1 = bounds
-        page_height = y1-y0
-        return {'page_number':virtual_page, 'page_width': page_width, 'page_height': page_height}
-    
+    # LEGACY: Keep old method name for backward compatibility  
+    def _get_virtual_page_num(self, y0: float) -> int:
+        """Legacy method - use self.vpm.get_virtual_page_number() instead."""
+        return self.vpm.get_virtual_page_number(y0)
+
+    def get_virtual_page_coords(self, bbox: Tuple[float, float, float, float]) -> Tuple[Tuple[float, float, float, float], int]:
+        """Legacy method - use self.vpm.bbox_to_virtual_page_coords() instead."""
+        page_bounds, relative_coords = self.vpm.bbox_to_virtual_page_coords(bbox)
+        return page_bounds.tuple, page_bounds.page_number
+
+    def get_virtual_page_wh(self, bbox: Tuple[float, float, float, float]) -> Dict[str, Union[int, float]]:
+        """Legacy method - use self.vpm directly instead.""" 
+        page_bounds, _ = self.vpm.bbox_to_virtual_page_coords(bbox)
+        return {
+            'page_number': page_bounds.page_number, 
+            'page_width': page_bounds.width, 
+            'page_height': page_bounds.height
+        }
+
     @staticmethod
     def flatten_fitz_dict(data, page_num: int, parent_key='', sep='.', result=None, 
                          parent_dict=None, inherited_font_meta=None):
@@ -293,33 +344,13 @@ class LineTextIndex:
         else:
             result.append((page_num, parent_key, data, {'font_meta': inherited_font_meta}))
         return result
-    
-    @classmethod
-    def from_document(cls, doc: fitz.Document, virtual_page_metadata: Optional[dict] = None, **kwargs):
-        """Creates a LineTextIndex from a combined document with virtual page awareness."""
-        if len(doc) != 1:
-            raise ValueError(f"Expected combined document with 1 page, got {len(doc)} pages")
-            
-        page = doc[0]
-        text_dict = page.get_text("dict")
-        flattened_data = cls.flatten_fitz_dict(text_dict, page_num=0)
-        
-        page_metadata = {0: {"width": page.rect.width, "height": page.rect.height}}
-            
-        return cls(
-            data=flattened_data,
-            page_metadata=page_metadata,
-            virtual_page_metadata=virtual_page_metadata, 
-            **kwargs
-        )
 
     def _build_index(self):
         """
-        Builds the indexes, adding virtual page information and calculating
-        region based on VIRTUAL page bounds. Now includes physical_page_bounds
-        for easier header/footer detection.
+        Build indexes using VirtualPageManager for all coordinate operations.
+        Much cleaner now that coordinate logic is centralized.
         """
-        # --- Pass 1: Build hierarchical index ---
+        # Pass 1: Build hierarchical index (unchanged)
         for page_num, idx, path, value, font_meta_dict in self.raw:
             parsed_path = self._parse_path_for_build(path)
             if not parsed_path: 
@@ -330,9 +361,10 @@ class LineTextIndex:
             if 'font_meta' not in span_data:
                 span_data['font_meta'] = font_meta_dict.get("font_meta")
     
-        # --- Pass 2: Build flat index with virtual page mapping and physical bounds ---
+        # Pass 2: Build flat index using VirtualPageManager
         all_flat_rows = []
         unique_idx_counter = 0
+        
         for physical_page_num, blocks in self.structured_index.items():
             for block_num, lines in blocks.items():
                 for line_num, spans in lines.items():
@@ -346,64 +378,56 @@ class LineTextIndex:
                             "index": unique_idx_counter
                         }
                         unique_idx_counter += 1
-                        # Handle bbox and virtual page assignment
+                        
+                        # UPDATED: Handle bbox using VirtualPageManager and CoordinateMapping
                         if "bbox" in span_data:
                             bbox = tuple(span_data["bbox"])
-                            virtual_page = self._get_virtual_page_num(bbox[1])
+                            
+                            # Use VPM directly for virtual page number
+                            virtual_page = self.vpm.get_virtual_page_number(bbox[1])
+                            page_bounds = self.vpm.get_page_bounds(virtual_page)
                             
                             base_row.update({
-                                "page": virtual_page,  # Virtual page number
+                                "page": virtual_page,
                                 "physical_page": physical_page_num,
                                 "bbox": bbox, 
                                 "x0": bbox[0], "y0": bbox[1], 
                                 "x1": bbox[2], "y1": bbox[3],
                                 "x_span": bbox[2] - bbox[0], 
-                                "y_span": bbox[3] - bbox[1]
+                                "y_span": bbox[3] - bbox[1],
+                                # Use VPM directly for region calculation
+                                "region": self.vpm.get_region_in_page(bbox)
                             })
                             
-                            # Calculate virtual page bounds and physical page bounds
-                            if self.virtual_page_metadata:
-                                vp_bounds = self.virtual_page_metadata["page_bounds"].get(virtual_page)
-                                if vp_bounds:
-
-                                    original_dims = self.virtual_page_metadata.get("original_page_dims")
-                                    physical_page_bounds=None
-                                    if original_dims and physical_page_num < len(original_dims):
-                                        physical_page_bounds = original_dims[physical_page_num]
-                                    
-                                    vp_x0, vp_y0, vp_x1, vp_y1 = vp_bounds
-                                    vp_height = vp_y1 - vp_y0
-                                    
-                                    # Calculate midpoint relative to virtual page for region assignment
-                                    mid_y_absolute = (bbox[1] + bbox[3]) / 2.0
-                                    mid_y_relative_to_vp = mid_y_absolute - vp_y0
-                                    
-                                    # Assign region based on position within virtual page
-                                    base_row["region"] = "header" if mid_y_relative_to_vp < (vp_height / 2) else "footer"
-                                    x0_rel = bbox[0] - vp_x0 # Relative to virtual page left edge
-                                    y0_rel = bbox[1] - vp_y0 # Relative to virtual page top edge 
-                                    x1_rel = bbox[2] - vp_x0 # Relative to virtual page left edge
-                                    y1_rel = bbox[3] - vp_y0 # Relative to virtual page top edge
-
-                                    base_row.update({
-                                        "x0(rel)": x0_rel,
-                                        "y0(rel)": y0_rel, 
-                                        "x1(rel)": x1_rel,
-                                        "y1(rel)": y1_rel,
-                                        "bbox(rel)": (x0_rel, y0_rel, x1_rel, y1_rel), 
-                                        "page_height(rel)": vp_height,
-                                        "page_width(rel)": vp_x1 - vp_x0,
-                                        "physical_page_bounds": physical_page_bounds
-                                    })
+                            # UPDATED: Use CoordinateMapping for relative coordinates
+                            if page_bounds:
+                                relative_coords = CoordinateMapping.absolute_to_relative(bbox, page_bounds)
+                                
+                                # Get original page dimensions if available
+                                original_dims = self.vpm.metadata.get("original_page_dims")
+                                physical_page_bounds = None
+                                if original_dims and physical_page_num < len(original_dims):
+                                    physical_page_bounds = original_dims[physical_page_num]
+                                
+                                base_row.update({
+                                    "x0(rel)": relative_coords[0],
+                                    "y0(rel)": relative_coords[1], 
+                                    "x1(rel)": relative_coords[2],
+                                    "y1(rel)": relative_coords[3],
+                                    "bbox(rel)": relative_coords, 
+                                    "page_height(rel)": page_bounds.height,
+                                    "page_width(rel)": page_bounds.width,
+                                    "physical_page_bounds": physical_page_bounds
+                                })
                         else:
                             # For items without bbox, assign to virtual page 0
                             base_row["page"] = 0
     
-                        # Handle text normalization
+                        # Handle text normalization (unchanged)
                         if "text" in span_data and isinstance(span_data["text"], str):
                             base_row["normalized_value"] = self.text_normalizer(span_data["text"])
 
-                        # Create flat rows for each key-value pair
+                        # Create flat rows for each key-value pair (unchanged)
                         for key, value in span_data.items():
                             if key == 'font_meta': 
                                 continue
@@ -413,10 +437,10 @@ class LineTextIndex:
                             flat_row['path'] = f"blocks[{block_num}].lines[{line_num}].spans[{span_num}].{key}"
                             all_flat_rows.append(flat_row)
 
-                        
-                        normalized_row = base_row.copy()
-                        if normalized_row.get('normalized_value', None):
+                        # Add normalized text row (unchanged)
+                        if base_row.get('normalized_value'):
                             unique_idx_counter += 1
+                            normalized_row = base_row.copy()
                             normalized_row.update({
                                 "key": "normalized_text", 
                                 "value": base_row['normalized_value'],
@@ -432,12 +456,12 @@ class LineTextIndex:
         for row in self.index:
             self.by_page[row['page']].append(row)
     
-        # Add whitespace gaps
+        # Add whitespace gaps (unchanged)
         fw_gaps = self.whitespace_generator(self.by_page, self.page_metadata)
         for gap in fw_gaps:
             gap.setdefault("key", "full_width_v_whitespace")
             gap.setdefault("font_meta", None)
-            gap.setdefault("physical_page_bounds", None)  # Add this for consistency
+            gap.setdefault("physical_page_bounds", None)
             self.index.append(gap)
             self.by_page[gap["page"]].append(gap)
 
@@ -449,41 +473,48 @@ class LineTextIndex:
         groups = match.groups()
         return (int(groups[0]), int(groups[1]), int(groups[2]), groups[3])
 
-    def query(
-        self, 
-        params: Optional[QueryParams] = None, 
-        **kwargs
-    ) -> 'ResultSet':
-        """
-        Executes a query against the index using a structured QueryParams object.
-        """
-        # 1. Self-initialize parameters: Start with the provided object or a default,
-        #    then apply any kwargs as convenient overrides.
+    # UPDATED: Enhanced query method with VPM-based filtering
+    def query(self, 
+              params: Optional['QueryParams'] = None, 
+              **kwargs) -> 'ResultSet':
+        """Execute a query with enhanced virtual page filtering capabilities."""
+        
         p = params or QueryParams()
         final_params = p.model_copy(update=kwargs)
     
-        # 2. Get exclusion zones if a key is provided
+        # Get exclusion zones if a key is provided
         exclusion_bboxes = []
         if final_params.exclude_bounds:
             exclusion_bboxes = self.get_bound_restriction(final_params.exclude_bounds)
             if exclusion_bboxes is None:
-                raise KeyError(f"Exclusion bounds key '{final_params.exclude_bounds}' not found in the store.")
+                raise KeyError(f"Exclusion bounds key '{final_params.exclude_bounds}' not found.")
     
-        # 3. Filter the data source
-        source = self.by_page.get(final_params.page, self.index) if final_params.page is not None else self.index
+        # UPDATED: Add page limit filtering using VPM directly
+        if hasattr(final_params, 'page_limit') and final_params.page_limit is not None:
+            source = []
+            for row in (self.by_page.get(final_params.page, self.index) if final_params.page is not None else self.index):
+                if 'bbox' in row and row['bbox']:
+                    if self.vpm.get_virtual_page_number(row['bbox'][1]) > final_params.page_limit:
+                        continue
+                source.append(row)
+        else:
+            source = self.by_page.get(final_params.page, self.index) if final_params.page is not None else self.index
+        
         result = []
         for row in source:
-            # Apply filters from the params object
+            # Apply standard filters
             if final_params.key is not None and row.get("key") != final_params.key:
                 continue
             if final_params.line is not None and row.get("line") != final_params.line:
                 continue
             
+            # Apply exclusion zones
             if exclusion_bboxes:
                 bbox = row.get("bbox")
                 if bbox and any(Map.is_overlapping(bbox, ex_box) for ex_box in exclusion_bboxes):
                     continue
     
+            # Apply custom bounds filter
             if final_params.bounds_filter and not final_params.bounds_filter(row):
                 continue
     
@@ -492,6 +523,7 @@ class LineTextIndex:
                 result_row["query_label"] = final_params.query_label
             result.append(result_row)
 
+        # Apply groupby and transform (unchanged)
         processed_result = result
         if final_params.groupby:
             processed_result = final_params.groupby(result)
@@ -499,6 +531,7 @@ class LineTextIndex:
         if final_params.transform:
             processed_result = final_params.transform(processed_result)
     
+        # Return results (unchanged)
         output_dicts = processed_result
         if not output_dicts:
             return ResultSet()
@@ -512,7 +545,6 @@ class LineTextIndex:
             return ResultSet[DefaultQueryResult](items)
         else:
             return ResultSet(output_dicts)
-    
     
     def add_bound_restriction(self, key: str, bounds: List[Tuple[float, ...]]):
         """
