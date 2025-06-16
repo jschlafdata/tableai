@@ -603,6 +603,6 @@ def find_combined_noise_regions(
     )
     
     # Add images to trace metadata
-    trace.add_metadata({process_result.tracer_metadata})
+    trace.add_metadata(process_result.tracer_metadata)
 
     return process_result
