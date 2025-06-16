@@ -463,7 +463,7 @@ class TraceLog:
         # Use existing formatting logic
         return self.get_formatted_trace(use_json_outline, max_str_len, include_global_functions)
 
-    def _print_result_focused_summary(self, include_images=True, use_json_outline=False, max_str_len=100, include_global_functions=True):
+    def _print_result_focused_summary(self, include_images=True, use_json_outline=False, max_str_len=100, include_global_functions=True, noise_detection_result: 'NoiseDetectionResult'=None):
         """Print summary combining result-focused format with complete execution details."""
         try:
             from rich.console import Console
@@ -478,7 +478,7 @@ class TraceLog:
                 return
             
             # Create the result object using the new method
-            result = self.create_noise_detection_result()
+            result = self.create_noise_detection_result(noise_detection_result)
             
             # === PART 1: RESULT-FOCUSED OVERVIEW ===
             console.print(Panel.fit("🎯 NOISE DETECTION RESULT SUMMARY", style="bold cyan"))
@@ -752,7 +752,7 @@ class TraceLog:
     
     
     def print_summary(self, use_json_outline=False, max_str_len=100, include_global_functions=True, 
-                     include_images=True, result_format=True):
+                     include_images=True, result_format=True, noise_detection_result: 'NoiseDetectionResult'=None):
         """
         Enhanced print_summary with result-focused formatting plus complete execution details.
         
@@ -762,7 +762,7 @@ class TraceLog:
         
         if result_format and hasattr(self, 'metadata') and 'sample_images' in self.metadata:
             # Use the new comprehensive format (result overview + execution details)
-            self._print_result_focused_summary(include_images, use_json_outline, max_str_len, include_global_functions)
+            self._print_result_focused_summary(include_images, use_json_outline, max_str_len, include_global_functions, noise_detection_result)
 
     def _print_basic_summary_with_images(self, use_json_outline=False, max_str_len=100, include_global_functions=True, include_images=True):
         """Fallback method for basic pretty printing with images."""
