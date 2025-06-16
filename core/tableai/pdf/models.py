@@ -20,7 +20,7 @@ from tableai.pdf.query import (
     LineTextIndex, 
     GroupbyTransform
 )
-
+from tableai.pdf.coordinates import Map
 from tableai.pdf.query_engine import QueryEngine
 from tableai.readers.files import FileReader  # Import your FileReader
 
