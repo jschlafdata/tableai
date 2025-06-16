@@ -27,6 +27,11 @@ from tableai.pdf.query_funcs import (
     GroupTouchingBoxesParams
 )
 
+from tableai.pdf.flows.generic import (
+    FlowResultBase, 
+    section_field
+)
+
 from typing import List, Tuple, Any, Optional, Tuple, Dict, Union, Callable
 
 HeaderFooterParams = GenericFunctionParams.create_custom_model(
@@ -134,14 +139,15 @@ NoiseRegionParams = GenericFunctionParams.create_custom_model(
     }
 )
 
-class NoiseDetectionResult(BaseModel):
+
+class NoiseDetectionResult(FlowResultBase):
     """
-    Specialized result model for noise detection workflow outputs.
-    Designed for comprehensive result presentation and post-processing analysis.
+    Noise detection workflow result using the generic framework.
     """
     
-    # === Core Result Components ===
-    overview: str = Field(
+    # === Overview Section ===
+    overview: str = section_field(
+        section="overview",
         default="""
 # Overview -- Flow & Process Goal, and Expected Result Output:
 Detects and removes recurring noise regions (headers, footers, processing statements) from PDF documents.
@@ -156,7 +162,8 @@ one single base64 image without the noise.
         description="High-level description of the noise detection process and its purpose"
     )
     
-    goal: str = Field(
+    goal: str = section_field(
+        section="overview",
         default="""
 # Primary Goal of Result
 The goal and purpose of the new rendered image without noise is the following:
@@ -167,19 +174,9 @@ The goal and purpose of the new rendered image without noise is the following:
         description="Primary objectives and intended use cases for the noise-free result"
     )
     
-    # === Result Images ===
-    result_image: Optional[str] = Field(
-        default=None,
-        description="Base64-encoded final result image (annotated PDF with noise/content regions highlighted)"
-    )
-    
-    original_image: Optional[str] = Field(
-        default=None, 
-        description="Base64-encoded original PDF sample image for comparison"
-    )
-    
-    # === Process Configuration ===
-    process_optional_parameters: str = Field(
+    # === Configuration Section ===
+    process_optional_parameters: str = section_field(
+        section="configuration",
         default="""
 # Should the result output from the process flow using the default parameters indicate a poor result, these 
 parameters can be reconfigured to improve the process.
@@ -210,91 +207,79 @@ noise_params = NoiseRegionParams(
     # === Universal Parameter ===
     query_label="CustomNoiseDetection_Run_2024"  # Universal label for all operations
 )
----
-# Examples of possible alternative parameter strategies
-parameter_strategies = {
-    "Conservative": NoiseRegionParams(
-        HEADER_BOUND=50, FOOTER_BOUND=50, MIN_OCCURRENCES=4,
-        WHITESPACE_TOLERANCE=5, TOUCHING_TOLERANCE=1.0,
-        query_label="Conservative_Strategy"
-    ),
-    "Aggressive": NoiseRegionParams(
-        HEADER_BOUND=150, FOOTER_BOUND=150, MIN_OCCURRENCES=2,
-        WHITESPACE_TOLERANCE=20, TOUCHING_TOLERANCE=8.0,
-        query_label="Aggressive_Strategy"
-    )
-}
         """.strip(),
         description="Optional parameters for result refinement and post-processing"
     )
     
-    # === Result Metadata ===
-
-    noise_regions_count: int = Field(default=0, description="Number of noise regions detected")
-    content_regions_count: int = Field(default=0, description="Number of content regions identified") 
-    pages_analyzed: int = Field(default=0, description="Total pages included in analysis")
+    # === Statistics Section ===
+    noise_regions_count: int = section_field(
+        section="statistics", 
+        default=0, 
+        description="Number of noise regions detected"
+    )
     
-    # === Processing Metadata ===
-    processing_timestamp: datetime = Field(default_factory=datetime.now, description="When the processing was completed")
-    parameters_used: Optional[Dict[str, Any]] = Field(default=None, description="Actual parameters used in processing")
-    image_config: Optional[Dict[str, Any]] = Field(default=None, description="Configuration used for image generation")
+    content_regions_count: int = section_field(
+        section="statistics", 
+        default=0, 
+        description="Number of content regions identified"
+    )
     
-    # === Technical Results ===
-    noise_regions: Optional[list] = Field(default=None, description="Raw noise region bounding boxes")
-    content_regions: Optional[list] = Field(default=None, description="Raw content region bounding boxes")
+    pages_analyzed: int = section_field(
+        section="statistics", 
+        default=0, 
+        description="Total pages included in analysis"
+    )
     
-    # === Additional Data for Tracer ===
-    annotated_image: Optional[str] = Field(default=None, description="Base64-encoded annotated PDF sample (limited pages)")
-    noise_regions_by_page: Optional[Dict[int, Any]] = Field(default=None, description="Noise regions organized by page")
+    # === Images Section ===
+    result_image: Optional[str] = section_field(
+        section="images",
+        default=None,
+        description="Base64-encoded final result image (annotated PDF with noise/content regions highlighted)"
+    )
     
-    def display_images(self):
-        """Display the result and original images if available."""
-        try:
-            from IPython.display import display, Image as IPImage, HTML
-            import base64
-            
-            if self.result_image:
-                display(HTML("<h3>🎯 RESULT: Annotated PDF with Noise Detection</h3>"))
-                img_bytes = base64.b64decode(self.result_image)
-                display(IPImage(data=img_bytes, width=800))
-            
-            if self.original_image:
-                display(HTML("<h3>📄 ORIGINAL: Source PDF Sample</h3>"))
-                img_bytes = base64.b64decode(self.original_image)
-                display(IPImage(data=img_bytes, width=800))
-                
-        except ImportError:
-            print("📷 Images available (IPython required for display)")
-            if self.result_image:
-                print(f"   Result image: {len(self.result_image)} base64 characters")
-            if self.original_image:
-                print(f"   Original image: {len(self.original_image)} base64 characters")
+    original_image: Optional[str] = section_field(
+        section="images",
+        default=None, 
+        description="Base64-encoded original PDF sample image for comparison"
+    )
     
-    def get_summary_report(self) -> str:
-        """Get formatted summary report for LLM processing."""
-        lines = []
-        
-        lines.append(self.overview)
-        lines.append("\n" + "="*80 + "\n")
-        
-        lines.append(self.goal)
-        lines.append("\n" + "="*80 + "\n")
-        
-        lines.append("# RESULT STATISTICS")
-        lines.append(f"- Noise regions detected: {self.noise_regions_count}")
-        lines.append(f"- Content regions identified: {self.content_regions_count}")
-        lines.append(f"- Pages analyzed: {self.pages_analyzed}")
-        lines.append(f"- Processing completed: {self.processing_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-        
-        if self.result_image:
-            lines.append(f"- Result image: Available ({len(self.result_image)} base64 chars)")
-        if self.original_image:
-            lines.append(f"- Original image: Available ({len(self.original_image)} base64 chars)")
-        
-        lines.append("\n" + "="*80 + "\n")
-        lines.append(self.process_optional_parameters)
-        
-        return "\n".join(lines)
+    annotated_image: Optional[str] = section_field(
+        section="images",
+        default=None, 
+        description="Base64-encoded annotated PDF sample (limited pages)"
+    )
+    
+    # === Results Section ===
+    noise_regions: Optional[list] = section_field(
+        section="results", 
+        default=None, 
+        description="Raw noise region bounding boxes"
+    )
+    
+    content_regions: Optional[list] = section_field(
+        section="results", 
+        default=None, 
+        description="Raw content region bounding boxes"
+    )
+    
+    # === Metadata Section ===
+    parameters_used: Optional[Dict[str, Any]] = section_field(
+        section="metadata", 
+        default=None, 
+        description="Actual parameters used in processing"
+    )
+    
+    image_config: Optional[Dict[str, Any]] = section_field(
+        section="metadata", 
+        default=None, 
+        description="Configuration used for image generation"
+    )
+    
+    noise_regions_by_page: Optional[Dict[int, Any]] = section_field(
+        section="metadata", 
+        default=None, 
+        description="Noise regions organized by page"
+    )
     
     @property
     def tracer_metadata(self) -> Dict[str, Any]:
@@ -313,10 +298,45 @@ parameter_strategies = {
             },
             'image_config': self.image_config or {}
         }
+    
+    # Enhanced display methods using PDFModel
+    def show_result_with_highlights(self, **kwargs):
+        """Display the result using PDFModel with noise/content region highlights."""
+        if not self.pdf_model:
+            print("PDFModel not available, falling back to basic display")
+            self.display_images()
+            return
+        
+        # Create highlight boxes for noise and content regions
+        highlight_boxes = {}
+        
+        if self.noise_regions:
+            highlight_boxes["Noise Regions"] = {
+                "boxes": self.noise_regions,
+                "color": "red"
+            }
+        
+        if self.content_regions:
+            highlight_boxes["Content Regions"] = {
+                "boxes": self.content_regions,
+                "color": "blue"
+            }
+        
+        # Use PDFModel's rich display functionality
+        self.pdf_model.show(highlight_boxes=highlight_boxes, **kwargs)
+    
+    def show_crop_content_regions(self, **kwargs):
+        """Display only the content regions as cropped images."""
+        if not self.pdf_model or not self.content_regions:
+            print("PDFModel or content regions not available")
+            return
+        
+        self.pdf_model.show(crop_boxes=self.content_regions, **kwargs)
+
 
 def _generate_noise_detection_images(pdf_model, noise_regions, params):
     """
-    Generates sample images for noise detection results.
+    Generates sample images for noise detection results using the generic framework.
     
     Args:
         pdf_model: PDFModel instance
@@ -331,6 +351,7 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         noise_regions_by_page = defaultdict(lambda: {'bboxes': []})
         
         for region in noise_regions:
+            # Use VPM directly instead of LineTextIndex wrapper
             page_info = pdf_model.line_index.get_virtual_page_wh(region)
             pg_num = page_info['page_number']
             
@@ -384,18 +405,26 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         page_limit=None  # Include all pages for final result
     )
     
-    # Build and return NoiseDetectionResult object
+    # KEY CHANGE: Create result with pdf_model reference and let framework handle the rest
     return NoiseDetectionResult(
-        # Core result images
+        # NEW: Pass the PDFModel for rich display functionality
+        pdf_model=pdf_model,
+        
+        # Core result images (framework handles these automatically)
         result_image=result_pdf_image,
         original_image=original_pdf_sample,
+        annotated_image=annotated_pdf_sample,
         
-        # Result metadata
+        # Statistics (automatically organized into sections)
         noise_regions_count=len(noise_regions),
         content_regions_count=len(inverse_noise_regions),
         pages_analyzed=len(noise_regions_by_page),
         
-        # Processing metadata
+        # Results (automatically organized into sections)
+        noise_regions=noise_regions,
+        content_regions=inverse_noise_regions,
+        
+        # Metadata (automatically organized into sections)
         parameters_used={
             'HEADER_BOUND': params.HEADER_BOUND,
             'FOOTER_BOUND': params.FOOTER_BOUND,
@@ -413,13 +442,6 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
             'noise_color': params.NOISE_BOX_COLOR,
             'inverse_color': params.INVERSE_BOX_COLOR
         },
-        
-        # Technical results (raw data)
-        noise_regions=noise_regions,
-        content_regions=inverse_noise_regions,
-        
-        # Additional data for tracer
-        annotated_image=annotated_pdf_sample,
         noise_regions_by_page=noise_regions_by_page
     )
 

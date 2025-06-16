@@ -203,7 +203,7 @@ class TraceLog:
                 }
 
         return functions
-    
+
 class TraceableWorkflow:
     """
     A generic runner that executes any compatible workflow function and manages
