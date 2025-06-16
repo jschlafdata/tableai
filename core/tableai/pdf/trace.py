@@ -363,35 +363,68 @@ PROCESS REFINEMENT OPTIONS:
                             stats_content = "[bold green]✅ PROCESSING COMPLETE[/bold green]\n\n" + "\n".join(stats_lines)
                             console.print(Panel(stats_content, title="📊 RESULT STATISTICS", border_style="green"))
             
-            # === PART 2: DYNAMIC EXECUTION STEPS - SECTIONED FORMAT ===
+            # === PART 2: EXECUTION STEPS - IMPROVED TABLE FORMAT ===
             console.print(Panel.fit("🔧 EXECUTION ANALYSIS", style="bold blue"))
+            
+            # Create a more readable table with better proportions
+            table = Table(title="📋 STEP-BY-STEP EXECUTION", box=box.ROUNDED, show_lines=True)
+            table.add_column("Step", style="cyan", no_wrap=True, width=5)
+            table.add_column("Name", style="magenta", width=45)
+            table.add_column("Function", style="green", width=30)
+            table.add_column("Output", style="red", no_wrap=True, width=10)
             
             for i, step in enumerate(trace.steps, 1):
                 # Extract step data dynamically
                 step_name = str(step.get('step_name', 'Unknown'))
                 function_name = str(step.get('function_name', 'Unknown'))
                 output_count = str(step.get('output_count', 0))
-                description = str(step.get('description', 'No description available'))
                 
-                # Create section header
-                section_header = f"Step {i}: {step_name}"
-                console.print(f"\n[bold cyan]{'─' * 8}[ {section_header} ]{'─' * (80 - len(section_header) - 12)}[/bold cyan]")
+                # Clean up step name for display
+                if step_name.startswith('Step '):
+                    # Remove "Step X: " prefix to avoid redundancy
+                    step_name = step_name.split(': ', 1)[1] if ': ' in step_name else step_name
                 
-                # Create info table for this step
-                info_table = Table(show_header=False, box=None, padding=(0, 2))
-                info_table.add_column("Label", style="dim", width=15)
-                info_table.add_column("Value", style="white")
+                # Truncate if needed but give more space
+                if len(step_name) > 42:
+                    step_name = step_name[:39] + "..."
+                if len(function_name) > 27:
+                    function_name = function_name[:24] + "..."
                 
-                info_table.add_row("Function:", f"[green]{function_name}()[/green]")
-                info_table.add_row("Output Count:", f"[red]{output_count}[/red] items")
+                table.add_row(
+                    str(i),
+                    step_name,
+                    f"{function_name}()",
+                    f"{output_count} items"
+                )
+            
+            console.print(table)
+            
+            # === PART 3: GLOBAL FUNCTIONS ANALYSIS ===
+            console.print(Panel.fit("🔧 GLOBAL FUNCTIONS USED", style="bold blue"))
+            
+            # Extract global functions from trace.steps properly
+            global_functions = self._extract_functions_from_steps(trace.steps)
+            
+            for func_name, func_info in global_functions.items():
+                # Build the complete panel content
+                panel_content = f"[bold green]{func_name}()[/]\n\n"
+                panel_content += f"[dim]Description:[/] {func_info['description']}\n\n"
                 
-                console.print(info_table)
+                if func_info['sample_params']:
+                    panel_content += "[dim]Parameters:[/]\n\n"
+                    
+                    # Clean JSON formatting
+                    try:
+                        json_str = json.dumps(func_info['sample_params'], indent=2, ensure_ascii=False)
+                        # Truncate very long JSON for display
+                        if len(json_str) > 2000:
+                            json_str = json_str[:2000] + "\n... (truncated)"
+                        panel_content += f"```json\n{json_str}\n```"
+                    except (TypeError, ValueError):
+                        panel_content += str(func_info['sample_params'])
                 
-                # Description in its own section
-                if description and description.strip():
-                    console.print(f"\n[blue]{description}[/blue]")
-                
-                console.print()  # Add spacing between steps
+                console.print(Panel(panel_content, border_style="blue"))
+                console.print()  # Add spacing
             
             # === PART 3: DYNAMIC CONFIGURATION PARAMETERS ===
             if result_obj:
@@ -438,6 +471,44 @@ PROCESS REFINEMENT OPTIONS:
             console.print("[yellow]Rich library not available, falling back to basic display[/yellow]")
             self.display_visual_report(trace, result_obj, show_images, **display_kwargs)
     
+    def _extract_functions_from_steps(self, steps: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+        """
+        Extract function information directly from trace.steps.
+        This properly handles the actual step data structure.
+        """
+        functions: Dict[str, Dict[str, Any]] = {}
+        
+        for step in steps:
+            function_name = step.get("function_name", "")
+            function_obj = step.get("function_obj")
+            parameters = step.get("parameters")
+            description = step.get("description", "")
+            
+            # Skip pure lambdas without delegation
+            if function_name.startswith("<lambda") and "→" not in function_name:
+                continue
+            
+            # Extract the actual function name for composite names (lambda → real_fn)
+            display_name = function_name
+            if "→" in function_name:
+                display_name = function_name.split("→")[-1].strip()
+            
+            # Skip if we already have this function
+            if display_name in functions:
+                continue
+            
+            # Get description from function object if available
+            func_description = description
+            if function_obj and hasattr(function_obj, '__doc__') and function_obj.__doc__:
+                func_description = function_obj.__doc__.strip()
+            
+            functions[display_name] = {
+                "description": func_description,
+                "sample_params": parameters
+            }
+        
+        return functions
+
     def _extract_result_sections(self, result_obj: Any) -> Dict[str, Dict[str, Any]]:
         """
         Dynamically extract sections from result object based on field metadata.
@@ -597,6 +668,7 @@ PROCESS REFINEMENT OPTIONS:
                 lines.append(f"{prefix}: {s}")
         
         return lines
+
 
 # ---------- core TraceLog --------------------------------------------------- #
 class TraceLog:
