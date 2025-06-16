@@ -317,20 +317,16 @@ PROCESS REFINEMENT OPTIONS:
                            trace, 
                            result_obj: Optional[Any] = None,
                            show_images: bool = True,
-                           include_global_functions: bool = True,
                            **display_kwargs) -> None:
         """
         Display a beautifully formatted report using Rich library.
-        This recreates the original beautiful formatting you had.
+        Generic and dynamic based on trace.steps and result model structure.
         """
         try:
             from rich.console import Console
             from rich.panel import Panel
             from rich.table import Table
-            from rich.syntax import Syntax
-            from rich.text import Text
             from rich import box
-            from rich.columns import Columns
             
             console = Console()
             
@@ -338,37 +334,38 @@ PROCESS REFINEMENT OPTIONS:
                 console.print(Panel("❌ No steps were recorded.", title="Execution Trace", style="red"))
                 return
             
-            # === PART 1: RESULT-FOCUSED OVERVIEW ===
-            console.print(Panel.fit("🎯 NOISE DETECTION RESULT SUMMARY", style="bold cyan"))
-            
+            # === PART 1: DYNAMIC RESULT OVERVIEW ===
             if result_obj:
-                # 1. OVERVIEW
-                console.print(Panel(result_obj.overview, title="📋 OVERVIEW", border_style="blue"))
+                # Generic title based on result class name
+                title = f"🎯 {result_obj.__class__.__name__.upper()} SUMMARY"
+                console.print(Panel.fit(title, style="bold cyan"))
                 
-                # 2. GOAL  
-                console.print(Panel(result_obj.goal, title="🎯 GOAL", border_style="green"))
+                # Dynamically extract and display sections from result model
+                sections = self._extract_result_sections(result_obj)
                 
-                # 3. RESULT STATISTICS
-                stats_content = f"""[bold green]✅ PROCESSING COMPLETE[/bold green]
-
-[cyan]Noise Regions Detected:[/cyan] {result_obj.noise_regions_count}
-[blue]Content Regions Identified:[/blue] {result_obj.content_regions_count}  
-[yellow]Pages Analyzed:[/yellow] {result_obj.pages_analyzed}
-[dim]Processing Time:[/dim] {result_obj.processing_timestamp.strftime('%Y-%m-%d %H:%M:%S')}"""
-
-                if result_obj.image_config:
-                    stats_content += f"""
-
-[dim]Image Settings:[/dim]
-  Zoom: {result_obj.image_config.get('zoom', 1.0)}x
-  Colors: Noise={result_obj.image_config.get('noise_color', 'red')}, Content={result_obj.image_config.get('inverse_color', 'blue')}"""
-                
-                console.print(Panel(stats_content, title="📊 RESULT STATISTICS", border_style="green"))
+                for section_name, section_data in sections.items():
+                    if section_name == "overview":
+                        for field_name, value in section_data.items():
+                            title = f"📋 {field_name.replace('_', ' ').upper()}"
+                            console.print(Panel(str(value), title=title, border_style="blue"))
+                    
+                    elif section_name == "statistics":
+                        stats_lines = []
+                        if hasattr(result_obj, 'processing_timestamp'):
+                            stats_lines.append(f"[dim]Processing Time:[/dim] {result_obj.processing_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+                        
+                        for field_name, value in section_data.items():
+                            if field_name != 'processing_timestamp':
+                                display_name = field_name.replace('_', ' ').title()
+                                stats_lines.append(f"[cyan]{display_name}:[/cyan] {value}")
+                        
+                        if stats_lines:
+                            stats_content = "[bold green]✅ PROCESSING COMPLETE[/bold green]\n\n" + "\n".join(stats_lines)
+                            console.print(Panel(stats_content, title="📊 RESULT STATISTICS", border_style="green"))
             
-            # === PART 2: DETAILED EXECUTION ANALYSIS ===
-            console.print(Panel.fit("🔧 DETAILED EXECUTION ANALYSIS", style="bold blue"))
+            # === PART 2: DYNAMIC EXECUTION STEPS TABLE ===
+            console.print(Panel.fit("🔧 EXECUTION ANALYSIS", style="bold blue"))
             
-            # Print execution steps table
             table = Table(title="📋 STEP-BY-STEP EXECUTION", box=box.ROUNDED)
             table.add_column("Step", style="cyan", no_wrap=True, width=6)
             table.add_column("Name", style="magenta", width=40)
@@ -377,61 +374,39 @@ PROCESS REFINEMENT OPTIONS:
             table.add_column("Description", style="blue", width=50)
             
             for i, step in enumerate(trace.steps, 1):
-                # Get description, truncate if too long for table display
-                description = step.get('description', '').strip()
-                if len(description) > 80:
-                    description = description[:80] + "..."
+                # Dynamically extract and format step data
+                step_name = str(step.get('step_name', 'Unknown'))[:50]
+                function_name = str(step.get('function_name', 'Unknown'))
+                output_count = str(step.get('output_count', 0))
+                description = str(step.get('description', ''))[:80]
                 
-                # Truncate step name for table
-                step_name = step['step_name']
-                if len(step_name) > 50:
-                    step_name = step_name[:50] + "..."
+                if len(step_name) > 47:
+                    step_name = step_name[:47] + "..."
+                if len(description) > 77:
+                    description = description[:77] + "..."
                 
                 table.add_row(
                     str(i),
                     step_name,
-                    f"{step['function_name']}()",
-                    str(step['output_count']),
+                    f"{function_name}()",
+                    output_count,
                     description
                 )
             
             console.print(table)
             
-            # Print Global Functions section if requested
-            if include_global_functions:
-                console.print(Panel.fit("🔧 GLOBAL FUNCTIONS USED", style="bold blue"))
+            # === PART 3: DYNAMIC CONFIGURATION PARAMETERS ===
+            if result_obj:
+                config_sections = self._extract_result_sections(result_obj)
                 
-                global_functions = trace._extract_global_functions()
-                
-                for func_name, func_info in global_functions.items():
-                    # Build the complete panel content
-                    panel_content = f"[bold green]{func_name}()[/]\n\n"
-                    panel_content += f"[dim]Description:[/] {func_info['description']}\n\n"
-                    
-                    if func_info['sample_params']:
-                        panel_content += "[dim]Parameters:[/]\n\n"
-                        
-                        # Clean JSON formatting
-                        try:
-                            json_str = json.dumps(func_info['sample_params'], indent=2, ensure_ascii=False)
-                            # Truncate very long JSON for display
-                            if len(json_str) > 2000:
-                                json_str = json_str[:2000] + "\n... (truncated)"
-                            panel_content += f"```json\n{json_str}\n```"
-                        except (TypeError, ValueError):
-                            panel_content += str(func_info['sample_params'])
-                    
-                    console.print(Panel(panel_content, border_style="blue"))
-                    console.print()  # Add spacing
+                # Display configuration sections
+                for section_name, section_data in config_sections.items():
+                    if section_name == "configuration":
+                        for field_name, value in section_data.items():
+                            title = f"⚙️ {field_name.replace('_', ' ').upper()}"
+                            console.print(Panel(str(value), title=title, border_style="yellow"))
             
-            # === PART 3: OPTIONAL PARAMETERS FOR REFINEMENT ===
-            if result_obj and hasattr(result_obj, 'process_optional_parameters'):
-                console.print(Panel(result_obj.process_optional_parameters, 
-                                  title="⚙️ PROCESS OPTIONAL PARAMETERS (for refinement)", 
-                                  border_style="yellow", 
-                                  expand=False))
-            
-            # === PART 4: IMAGES ===
+            # === PART 4: DYNAMIC IMAGE DISPLAY ===
             if show_images and result_obj:
                 console.print(Panel.fit("📸 RESULT IMAGES", style="bold magenta"))
                 
@@ -441,19 +416,22 @@ PROCESS REFINEMENT OPTIONS:
                 elif hasattr(result_obj, 'display_images') and callable(result_obj.display_images):
                     result_obj.display_images(**display_kwargs)
                 elif hasattr(result_obj, 'pdf_model') and result_obj.pdf_model:
-                    # Fallback to PDF model show method
+                    # Dynamic highlight box creation based on available result fields
                     highlight_boxes = {}
-                    if hasattr(result_obj, 'noise_regions') and result_obj.noise_regions:
-                        highlight_boxes["Noise Regions"] = {
-                            "boxes": result_obj.noise_regions,
-                            "color": "red"
-                        }
-                    if hasattr(result_obj, 'content_regions') and result_obj.content_regions:
-                        highlight_boxes["Content Regions"] = {
-                            "boxes": result_obj.content_regions, 
-                            "color": "blue"
-                        }
-                    result_obj.pdf_model.show(highlight_boxes=highlight_boxes, **display_kwargs)
+                    
+                    # Dynamically find region fields
+                    for attr_name in dir(result_obj):
+                        if attr_name.endswith('_regions') and not attr_name.startswith('_'):
+                            regions = getattr(result_obj, attr_name)
+                            if regions and isinstance(regions, list):
+                                color = "red" if "noise" in attr_name else "blue"
+                                label = attr_name.replace('_', ' ').title()
+                                highlight_boxes[label] = {"boxes": regions, "color": color}
+                    
+                    if highlight_boxes:
+                        result_obj.pdf_model.show(highlight_boxes=highlight_boxes, **display_kwargs)
+                    else:
+                        result_obj.pdf_model.show(**display_kwargs)
                 else:
                     console.print("No display method available for images.")
                 
@@ -461,7 +439,7 @@ PROCESS REFINEMENT OPTIONS:
             # Fallback to regular display if Rich is not available
             console.print("[yellow]Rich library not available, falling back to basic display[/yellow]")
             self.display_visual_report(trace, result_obj, show_images, **display_kwargs)
-
+            
     def _generate_fallback_report(self, trace, result_obj) -> str:
         """Fallback report generation using simple string formatting."""
         lines = []
