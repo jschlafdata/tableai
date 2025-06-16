@@ -444,7 +444,19 @@ PROCESS REFINEMENT OPTIONS:
         Uses the same logic as the generic framework.
         """
         if hasattr(result_obj, '_extract_sections_from_fields'):
-            return result_obj._extract_sections_from_fields()
+            framework_sections = result_obj._extract_sections_from_fields()
+            # Convert any lists to dicts for consistent handling
+            converted_sections = {}
+            for section_name, section_content in framework_sections.items():
+                if isinstance(section_content, list):
+                    # Convert list of field names to dict with values
+                    converted_sections[section_name] = {}
+                    for field_name in section_content:
+                        if hasattr(result_obj, field_name):
+                            converted_sections[section_name][field_name] = getattr(result_obj, field_name)
+                else:
+                    converted_sections[section_name] = section_content
+            return converted_sections
         
         # Fallback: basic categorization
         sections = {
