@@ -3,7 +3,6 @@ from pydantic import BaseModel
 import inspect
 import textwrap
 import hashlib
-from collections import defaultdict
 from tableai.pdf.coordinates import Map
 
 def _describe_callable(fn: Callable) -> str:
