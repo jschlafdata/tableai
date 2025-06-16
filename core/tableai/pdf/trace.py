@@ -15,6 +15,7 @@ import textwrap
 from typing import Any, Callable, Dict, List, Optional, Union
 from jinja2 import Environment, BaseLoader, Template
 import json
+from datetime import datetime
 
 try:
     # Optional import – only needed when you pass Pydantic models
