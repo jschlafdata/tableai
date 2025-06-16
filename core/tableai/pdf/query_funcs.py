@@ -6,10 +6,7 @@ import re
 from tableai.pdf.coordinates import Map
 import functools
 from collections import defaultdict
-from tableai.pdf.models import (
-    QueryParams
-)
-from tableai.pdf.query import LineTextIndex
+from tableai.pdf.query import LineTextIndex, QueryParams
 from tableai.pdf.generic_models import (
     HorizontalWhitespaceParams,
     GroupTouchingBoxesParams, 

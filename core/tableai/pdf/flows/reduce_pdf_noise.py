@@ -4,17 +4,18 @@ from tableai.pdf.coordinates import Map
 from pydantic import BaseModel, Field 
 from typing import Optional
 from tableai.pdf.trace import TraceLog, TraceableWorkflow
-from tableai.pdf.models import (
-    QueryParams, 
-    PDFModel
+from tableai.pdf.models import PDFModel
+from tableai.pdf.generic_models import (
+    GenericFunctionParams,
+    GroupOps
 )
-from tableai.pdf.generic_models import GenericFunctionParams
 from tableai.pdf.query import (
     TextNormalizer, 
     WhitespaceGenerator, 
     groupby,
     regroup_by_key,
-    GroupOps
+    GroupOps, 
+    QueryParams
 )
 
 from tableai.pdf.query_funcs import (
