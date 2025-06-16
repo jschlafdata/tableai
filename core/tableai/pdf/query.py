@@ -20,10 +20,7 @@ from tableai.pdf.generic_models import (
     ResultSet
 )
 
-from tableai.pdf.models import (
-    CoordinateMapping, 
-    VirtualPageManager
-)
+from tableai.pdf.models import VirtualPageManager
 
 # Add this new class to your file
 class GroupbyTransform:
