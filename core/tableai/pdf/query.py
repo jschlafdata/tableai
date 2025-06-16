@@ -20,8 +20,6 @@ from tableai.pdf.generic_models import (
     ResultSet
 )
 
-from tableai.pdf.models import VirtualPageManager
-
 # Add this new class to your file
 class GroupbyTransform:
     """A callable object that encapsulates the logic and parameters of a groupby operation."""
@@ -198,7 +196,7 @@ class LineTextIndex:
     def __init__(self, 
                  data: List[Tuple[int, str, Any, Dict[str, Any]]], 
                  page_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
-                 vpm: Optional[VirtualPageManager] = None,
+                 vpm: Optional['VirtualPageManager'] = None,
                  **kwargs):
         """Initialize with VirtualPageManager for coordinate operations."""
         
@@ -265,33 +263,6 @@ class LineTextIndex:
             data=flattened_data,
             page_metadata=page_metadata,
             vpm=pdf_model.vpm,  # Reuse the VirtualPageManager!
-            **kwargs
-        )
-
-    @classmethod  
-    def from_document(cls, doc: fitz.Document, virtual_page_metadata: Optional[dict] = None, **kwargs):
-        """
-        Legacy method for backward compatibility.
-        Creates a new VirtualPageManager from metadata.
-        """
-        if len(doc) != 1:
-            raise ValueError(f"Expected combined document with 1 page, got {len(doc)} pages")
-        
-        # Create a new VirtualPageManager for this instance
-        vpm = VirtualPageManager(virtual_page_metadata) if virtual_page_metadata else None
-        if not vpm:
-            raise ValueError("virtual_page_metadata is required when not using from_pdf_model()")
-            
-        page = doc[0]
-        text_dict = page.get_text("dict")
-        flattened_data = cls.flatten_fitz_dict(text_dict, page_num=0)
-        
-        page_metadata = {0: {"width": page.rect.width, "height": page.rect.height}}
-            
-        return cls(
-            data=flattened_data,
-            page_metadata=page_metadata,
-            vpm=vpm,
             **kwargs
         )
 
