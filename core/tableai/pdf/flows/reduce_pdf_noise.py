@@ -14,7 +14,6 @@ from tableai.pdf.query import (
     WhitespaceGenerator, 
     groupby,
     regroup_by_key,
-    GroupOps, 
     QueryParams
 )
 
