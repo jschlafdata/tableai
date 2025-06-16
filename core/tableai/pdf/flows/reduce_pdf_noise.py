@@ -239,6 +239,10 @@ parameter_strategies = {
     noise_regions: Optional[list] = Field(default=None, description="Raw noise region bounding boxes")
     content_regions: Optional[list] = Field(default=None, description="Raw content region bounding boxes")
     
+    # === Additional Data for Tracer ===
+    annotated_image: Optional[str] = Field(default=None, description="Base64-encoded annotated PDF sample (limited pages)")
+    noise_regions_by_page: Optional[Dict[str, Any]] = Field(default=None, description="Noise regions organized by page")
+    
     def display_images(self):
         """Display the result and original images if available."""
         try:
@@ -295,10 +299,10 @@ parameter_strategies = {
             'sample_images': {
                 'result_pdf_image': self.result_image,
                 'original_pdf_sample': self.original_image,
-                'annotated_pdf_sample': getattr(self, 'annotated_image', None),
+                'annotated_pdf_sample': self.annotated_image,
                 'noise_regions_count': self.noise_regions_count,
                 'inverse_regions_count': self.content_regions_count,
-                'noise_regions_by_page': getattr(self, 'noise_regions_by_page', None),
+                'noise_regions_by_page': self.noise_regions_by_page,
                 'inverse_noise_regions': self.content_regions,
                 'pages_included': self.pages_analyzed,
                 'metadata': self.image_config or {}
@@ -408,12 +412,12 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         
         # Technical results (raw data)
         noise_regions=noise_regions,
-        content_regions=inverse_noise_regions
+        content_regions=inverse_noise_regions,
+        
+        # Additional data for tracer
+        annotated_image=annotated_pdf_sample,
+        noise_regions_by_page=noise_regions_by_page
     )
-    
-    # Add additional data needed for tracer metadata (using setattr to add non-field attributes)
-    setattr(result, 'annotated_image', annotated_pdf_sample)
-    setattr(result, 'noise_regions_by_page', noise_regions_by_page)
     
     return result
 
