@@ -13,8 +13,6 @@ from typing import Optional, List, Tuple, Union, Dict, Any, Callable, TYPE_CHECK
 from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field, create_model, field_serializer
 
 from tableai.pdf.generic_models import (
-    TextNormalizer, 
-    WhitespaceGenerator, 
     DefaultQueryResult, 
     GroupbyQueryResult, 
     ResultSet
@@ -197,6 +195,8 @@ class LineTextIndex:
                  data: List[Tuple[int, str, Any, Dict[str, Any]]], 
                  page_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
                  vpm: Optional['VirtualPageManager'] = None,
+                 text_normalizer: Optional['TextNormalizer'] = None, 
+                 whitespace_generator: Optional['WhitespaceGenerator'] = None,
                  **kwargs):
         """Initialize with VirtualPageManager for coordinate operations."""
         
@@ -209,17 +209,9 @@ class LineTextIndex:
         if not self.vpm:
             raise ValueError("VirtualPageManager is required for proper coordinate handling")
         
-        # Initialize text processing components
-        self.text_normalizer = kwargs.get('text_normalizer', 
-            TextNormalizer(patterns={
-                r'page\s*\d+\s*of\s*\d+': 'page xx of xx',
-                r'page\s*\d+': 'page xx'
-            }, 
-            description='Normalizes text using regex substitutions.')
-        )
-        self.whitespace_generator = kwargs.get('whitespace_generator', 
-            WhitespaceGenerator(min_gap=5.0)
-        )
+        # # Initialize text processing components
+        self.text_normalizer = text_normalizer
+        self.whitespace_generator = whitespace_generator
         
         # Initialize data structures
         self.index: List[Dict[str, Any]] = []
@@ -237,7 +229,13 @@ class LineTextIndex:
         self._build_index()
 
     @classmethod
-    def from_pdf_model(cls, pdf_model: 'PDFModel', **kwargs):
+    def from_pdf_model(
+            cls, 
+            pdf_model: 'PDFModel', 
+            text_normalizer: 'TextNormalizer', 
+            whitespace_generator: 'WhitespaceGenerator', 
+            **kwargs
+        ):
         """
         Create LineTextIndex from a PDFModel, reusing its VirtualPageManager.
         
@@ -262,7 +260,9 @@ class LineTextIndex:
         return cls(
             data=flattened_data,
             page_metadata=page_metadata,
-            vpm=pdf_model.vpm,  # Reuse the VirtualPageManager!
+            vpm=pdf_model.vpm,
+            text_normalizer=text_normalizer, 
+            whitespace_generator=whitespace_generator,
             **kwargs
         )
 

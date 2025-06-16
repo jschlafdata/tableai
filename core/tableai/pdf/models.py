@@ -25,6 +25,11 @@ from tableai.pdf.coordinates import (
     CoordinateMapping
 )
 
+from tableai.pdf.generic_models import (
+    TextNormalizer, 
+    WhitespaceGenerator
+)
+
 from tableai.readers.files import FileReader  # Import your FileReader
 
 __all__ = ["PDFModel"]
@@ -189,6 +194,13 @@ class PDFModel(BaseModel):
     # ----------------------- Core public attributes ------------------------ #
     path: Union[str, Path, bytes, bytearray]
     s3_client: Optional[Any] = None
+    text_normalizer: Optional[TextNormalizer] = TextNormalizer(
+        patterns={
+            r'page\s*\d+\s*of\s*\d+': 'page xx of xx',
+            r'page\s*\d+': 'page xx'
+        }
+    )
+    whitespace_generator: Optional[WhitespaceGenerator] = WhitespaceGenerator(min_gap=5.0)
 
     # Populated automatically by the validator
     doc: Optional[fitz.Document] = None
@@ -241,7 +253,7 @@ class PDFModel(BaseModel):
         self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
         original_doc.close()
 
-        self.line_index = LineTextIndex.from_pdf_model(self)
+        self.line_index = LineTextIndex.from_pdf_model(self, text_normalizer=self.text_normalizer, whitespace_generator=self.whitespace_generator)
 
         return self
 

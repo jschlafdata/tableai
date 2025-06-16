@@ -99,7 +99,7 @@ class TextNormalizer:
     def __init__(self, patterns: Dict[str, str], description: Optional[str] = None, output_key: Optional[str]='normalized_text'):
         self.patterns = patterns
         self.output_key = output_key or 'normalized_text'
-        self.description = description or f"Normalizes text using a set of regex substitutions. Used to build index items with the key=[{self.output_key}]."
+        self.description = description or f"Normalizes text using a set of regex substitutions. Used to build index items with the key=[{output_key}]."
 
     def __call__(self, text: str) -> str:
         """Makes the object callable to perform the normalization."""
@@ -121,7 +121,7 @@ class WhitespaceGenerator:
     def __init__(self, min_gap: float = 5.0, description: Optional[str] = None, output_key: Optional[str]='full_width_v_whitespace'):
         self.min_gap = min_gap
         self.output_key = output_key or 'full_width_v_whitespace'
-        self.description = description or f"Detects vertical whitespace regions spanning the page width. Used to build index items with the key=[{self.output_key}]."
+        self.description = description or f"Detects vertical whitespace regions spanning the page width. Used to build index items with the key=[{output_key}]."
 
     def __call__(self, by_page: Dict, page_metadata: Dict) -> List[Dict[str, Any]]:
         """Makes the object callable to perform the calculation."""
