@@ -62,45 +62,50 @@ class TraceReportGenerator:
     def __init__(self):
         """Initialize with Jinja2 environment and templates."""
         self.jinja_env = Environment(loader=BaseLoader())
-        self._setup_templates()
         self._setup_filters()
+        self._setup_templates()
     
     def _setup_filters(self):
         """Add custom Jinja2 filters for report generation."""
         
-        def format_json(value, indent=2):
-            """Format value as pretty JSON."""
+        # Simple filters that handle Jinja2's argument passing correctly
+        def safe_truncate(value, *args):
+            """Safely truncate string, handling variable arguments."""
+            length = args[0] if args else 100
+            s = str(value)
+            return s[:length] + "..." if len(s) > length else s
+        
+        def safe_json(value, *args):
+            """Safely format as JSON, handling variable arguments."""
+            indent = args[0] if args else 2
             try:
                 return json.dumps(value, indent=indent, ensure_ascii=False)
             except (TypeError, ValueError):
                 return str(value)
         
-        def format_datetime(value, format_str='%Y-%m-%d %H:%M:%S'):
-            """Format datetime object."""
+        def safe_datetime(value, *args):
+            """Safely format datetime, handling variable arguments."""
+            format_str = args[0] if args else '%Y-%m-%d %H:%M:%S'
             if isinstance(value, datetime):
                 return value.strftime(format_str)
             return str(value)
         
-        def truncate_string(value, length=100):
-            """Truncate string with ellipsis."""
-            s = str(value)
-            return s[:length] + "..." if len(s) > length else s
-        
-        def format_outline(value, max_str_len=100):
-            """Format nested dict/list as outline."""
+        def safe_outline(value, *args):
+            """Safely format as outline, handling variable arguments."""
+            max_str_len = args[0] if args else 100
             lines = self._format_json_outline(value, max_str_len=max_str_len)
             return '\n'.join(lines)
         
-        # Register filters - use simple lambda wrappers to avoid argument issues
-        self.jinja_env.filters['json'] = lambda x, indent=2: format_json(x, indent)
-        self.jinja_env.filters['datetime'] = lambda x, fmt='%Y-%m-%d %H:%M:%S': format_datetime(x, fmt)
-        self.jinja_env.filters['truncate'] = lambda x, length=100: truncate_string(x, length)
-        self.jinja_env.filters['outline'] = lambda x, max_len=100: format_outline(x, max_len)
+        # Register filters with *args to handle Jinja2's argument passing
+        self.jinja_env.filters['truncate'] = safe_truncate
+        self.jinja_env.filters['json'] = safe_json
+        self.jinja_env.filters['datetime'] = safe_datetime
+        self.jinja_env.filters['outline'] = safe_outline
     
     def _setup_templates(self):
         """Define Jinja2 templates for different report formats."""
         
-        # Template for visual notebook reports
+        # Template for visual notebook reports - simplified to avoid filter issues
         self.visual_template = self.jinja_env.from_string("""
 {%- if result_obj -%}
 # 🎯 {{ result_obj.__class__.__name__ }} Summary
@@ -117,7 +122,7 @@ class TraceReportGenerator:
 - **Content regions identified:** {{ result_obj.content_regions_count }}  
 - **Pages analyzed:** {{ result_obj.pages_analyzed }}
 {%- if result_obj.image_config %}
-- **Image settings:** Zoom={{ result_obj.image_config.zoom }}x, Colors=Noise={{ result_obj.image_config.noise_color }}, Content={{ result_obj.image_config.inverse_color }}
+- **Image settings:** Zoom={{ result_obj.image_config.zoom }}x
 {%- endif %}
 
 {%- endif %}
@@ -127,7 +132,7 @@ class TraceReportGenerator:
 | Step | Name | Function | Output | Description |
 |------|------|----------|--------|-------------|
 {%- for step in trace_steps %}
-| {{ loop.index }} | {{ step.step_name | truncate(40) }} | {{ step.function_name }}() | {{ step.output_count }} | {{ step.description | truncate(60) }} |
+| {{ loop.index }} | {{ step.step_name | truncate }} | {{ step.function_name }}() | {{ step.output_count }} | {{ step.description | truncate }} |
 {%- endfor %}
 
 {%- if global_functions %}
@@ -158,7 +163,7 @@ class TraceReportGenerator:
         # Template for LLM-friendly reports
         self.llm_template = self.jinja_env.from_string("""
 EXECUTION TRACE ANALYSIS
-{{ "=" * 50 }}
+===============================================
 
 {%- if result_obj %}
 
@@ -168,7 +173,6 @@ RESULT SUMMARY:
 - Noise regions detected: {{ result_obj.noise_regions_count }}
 - Content regions identified: {{ result_obj.content_regions_count }}
 - Pages analyzed: {{ result_obj.pages_analyzed }}
-- Images available: {{ "Yes" if result_obj.result_image else "No" }}
 
 OVERVIEW:
 {{ result_obj.overview }}
@@ -179,7 +183,7 @@ GOAL:
 {%- endif %}
 
 EXECUTION STEPS ({{ trace_steps | length }} total):
-{{ "-" * 50 }}
+-----------------------------------------------
 
 {%- for step in trace_steps %}
 
@@ -198,7 +202,7 @@ Parameters:
 {%- if global_functions and include_global_functions %}
 
 GLOBAL FUNCTIONS ANALYSIS:
-{{ "-" * 50 }}
+-----------------------------------------------
 
 {%- for func_name, func_info in global_functions.items() %}
 
@@ -215,71 +219,59 @@ Sample Parameters:
 {%- if result_obj and result_obj.process_optional_parameters %}
 
 PROCESS REFINEMENT OPTIONS:
-{{ "-" * 50 }}
+-----------------------------------------------
 {{ result_obj.process_optional_parameters }}
 {%- endif %}
         """.strip())
     
     def generate_visual_report(self, 
-                             trace: 'TraceLog', 
+                             trace, 
                              result_obj: Optional[Any] = None,
                              include_global_functions: bool = True) -> str:
-        """
-        Generate a visual report for notebook display.
+        """Generate a visual report for notebook display."""
         
-        Args:
-            trace: TraceLog object with execution steps
-            result_obj: Result object (e.g., NoiseDetectionResult)
-            include_global_functions: Whether to include global functions analysis
+        context = {
+            'trace_steps': trace.steps,
+            'result_obj': result_obj,
+            'global_functions': trace._extract_global_functions() if include_global_functions else {},
+        }
         
-        Returns:
-            Formatted markdown report string
-        """
-        context = self._build_template_context(
-            trace, result_obj, include_global_functions
-        )
-        
-        return self.visual_template.render(**context)
+        try:
+            return self.visual_template.render(**context)
+        except Exception as e:
+            # Fallback to simple string formatting if template fails
+            return self._generate_fallback_report(trace, result_obj)
     
     def generate_llm_report(self, 
-                           trace: 'TraceLog', 
+                           trace, 
                            result_obj: Optional[Any] = None,
                            include_global_functions: bool = True,
                            include_parameters: bool = True,
                            max_str_len: int = 100) -> str:
-        """
-        Generate an LLM-friendly report.
+        """Generate an LLM-friendly report."""
         
-        Args:
-            trace: TraceLog object with execution steps
-            result_obj: Result object (e.g., NoiseDetectionResult)
-            include_global_functions: Whether to include global functions analysis
-            include_parameters: Whether to include detailed parameters
-            max_str_len: Maximum string length for truncation
-        
-        Returns:
-            Plain text report optimized for LLM consumption
-        """
-        context = self._build_template_context(
-            trace, result_obj, include_global_functions
-        )
-        context.update({
+        context = {
+            'trace_steps': trace.steps,
+            'result_obj': result_obj,
+            'global_functions': trace._extract_global_functions() if include_global_functions else {},
             'include_global_functions': include_global_functions,
             'include_parameters': include_parameters,
             'max_str_len': max_str_len
-        })
+        }
         
-        return self.llm_template.render(**context)
+        try:
+            return self.llm_template.render(**context)
+        except Exception as e:
+            # Fallback to simple string formatting if template fails
+            return self._generate_fallback_llm_report(trace, result_obj, include_parameters)
     
     def display_visual_report(self, 
-                            trace: 'TraceLog', 
+                            trace, 
                             result_obj: Optional[Any] = None,
                             show_images: bool = True,
                             **display_kwargs) -> None:
-        """
-        Display a visual report in notebook with images.
-        Uses existing functionality from result_obj or PDF model.
-        """
+        """Display a visual report in notebook with images."""
+        
         try:
             from IPython.display import display, Markdown
             
@@ -294,10 +286,10 @@ PROCESS REFINEMENT OPTIONS:
                 print("="*60)
                 
                 # Use existing display functionality from result object
-                if hasattr(result_obj, 'display_images') and callable(result_obj.display_images):
-                    result_obj.display_images(**display_kwargs)
-                elif hasattr(result_obj, 'show_result_with_highlights') and callable(result_obj.show_result_with_highlights):
+                if hasattr(result_obj, 'show_result_with_highlights') and callable(result_obj.show_result_with_highlights):
                     result_obj.show_result_with_highlights(**display_kwargs)
+                elif hasattr(result_obj, 'display_images') and callable(result_obj.display_images):
+                    result_obj.display_images(**display_kwargs)
                 elif hasattr(result_obj, 'pdf_model') and result_obj.pdf_model:
                     # Fallback to PDF model show method
                     highlight_boxes = {}
@@ -321,21 +313,67 @@ PROCESS REFINEMENT OPTIONS:
             if show_images and result_obj:
                 print("\n📷 Images available (Jupyter required for display)")
     
-    def _build_template_context(self, 
-                               trace: 'TraceLog', 
-                               result_obj: Optional[Any],
-                               include_global_functions: bool) -> Dict[str, Any]:
-        """Build the context dictionary for template rendering."""
-        context = {
-            'trace_steps': trace.steps,
-            'result_obj': result_obj,
-            'global_functions': {},
-        }
+    def _generate_fallback_report(self, trace, result_obj) -> str:
+        """Fallback report generation using simple string formatting."""
+        lines = []
         
-        if include_global_functions:
-            context['global_functions'] = trace._extract_global_functions()
+        if result_obj:
+            lines.append(f"# 🎯 {result_obj.__class__.__name__} Summary\n")
+            lines.append("## 📊 Result Statistics")
+            lines.append(f"- **Noise regions detected:** {result_obj.noise_regions_count}")
+            lines.append(f"- **Content regions identified:** {result_obj.content_regions_count}")
+            lines.append(f"- **Pages analyzed:** {result_obj.pages_analyzed}")
+            lines.append("")
         
-        return context
+        lines.append("## 🔧 Execution Steps\n")
+        for i, step in enumerate(trace.steps, 1):
+            lines.append(f"**Step {i}:** {step['step_name']}")
+            lines.append(f"- Function: {step['function_name']}()")
+            lines.append(f"- Output: {step['output_count']} items")
+            lines.append(f"- Description: {step.get('description', 'No description')}")
+            lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _generate_fallback_llm_report(self, trace, result_obj, include_parameters=True) -> str:
+        """Fallback LLM report generation using simple string formatting."""
+        lines = ["EXECUTION TRACE ANALYSIS", "=" * 50, ""]
+        
+        if result_obj:
+            lines.extend([
+                "RESULT SUMMARY:",
+                f"- Result Type: {result_obj.__class__.__name__}",
+                f"- Noise regions detected: {result_obj.noise_regions_count}",
+                f"- Content regions identified: {result_obj.content_regions_count}",
+                f"- Pages analyzed: {result_obj.pages_analyzed}",
+                ""
+            ])
+        
+        lines.extend([
+            f"EXECUTION STEPS ({len(trace.steps)} total):",
+            "-" * 50,
+            ""
+        ])
+        
+        for i, step in enumerate(trace.steps, 1):
+            lines.extend([
+                f"Step {i}: {step['step_name']}",
+                f"Function: {step['function_name']}()",
+                f"Output Count: {step['output_count']}",
+                f"Description: {step.get('description', 'No description')}",
+                ""
+            ])
+            
+            if include_parameters and step.get('parameters'):
+                lines.append("Parameters:")
+                try:
+                    param_str = json.dumps(step['parameters'], indent=2)
+                    lines.append(param_str)
+                except:
+                    lines.append(str(step['parameters']))
+                lines.append("")
+        
+        return "\n".join(lines)
     
     def _format_json_outline(self, data: Any, prefix: str = "", max_str_len: int = 100) -> List[str]:
         """Format nested dict/list as outline for better readability."""
@@ -346,36 +384,32 @@ PROCESS REFINEMENT OPTIONS:
                 cur = f"{prefix}.{key}" if prefix else key
                 if isinstance(value, dict):
                     lines.append(f"{cur} (object with {len(value)} properties)")
-                    lines.extend(self._format_json_outline(value, cur, max_str_len))
+                    if len(value) <= 10:  # Only expand small objects
+                        lines.extend(self._format_json_outline(value, cur, max_str_len))
                 elif isinstance(value, list):
                     if value:
                         lines.append(f"{cur} ({len(value)} items)")
-                        if len(value) <= 5:
+                        if len(value) <= 3:  # Only show details for small arrays
                             for i, item in enumerate(value):
                                 lines.extend(self._format_json_outline(item, f"{cur}[{i}]", max_str_len))
-                        else:
-                            # Show first few items for large arrays
-                            for i in range(3):
-                                lines.extend(self._format_json_outline(value[i], f"{cur}[{i}]", max_str_len))
-                            lines.append(f"{cur}[...] ({len(value)-3} more items)")
                     else:
                         lines.append(f"{cur}: []")
                 else:
                     s = str(value)
                     if len(s) > max_str_len:
-                        lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+                        lines.append(f"{cur}: \"{s[:max_str_len]}...\" ({len(s)} chars)")
                     else:
                         lines.append(f"{cur}: {s}")
         elif isinstance(data, list):
-            for i, item in enumerate(data[:10]):
+            for i, item in enumerate(data[:5]):  # Limit to first 5 items
                 cur = f"{prefix}[{i}]" if prefix else f"[{i}]"
                 lines.extend(self._format_json_outline(item, cur, max_str_len))
-            if len(data) > 10:
-                lines.append(f"{prefix}[...] ({len(data)-10} more items)")
+            if len(data) > 5:
+                lines.append(f"{prefix}[...] ({len(data)-5} more items)")
         else:
             s = str(data)
             if len(s) > max_str_len:
-                lines.append(f"{prefix}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+                lines.append(f"{prefix}: \"{s[:max_str_len]}...\" ({len(s)} chars)")
             else:
                 lines.append(f"{prefix}: {s}")
         
