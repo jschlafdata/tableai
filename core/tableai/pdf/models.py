@@ -268,7 +268,7 @@ class PDFModel(BaseModel):
             load_type=self.load_type
         )
 
-        self.pdf_metadata = PDFMetadata(_doc=self.doc)
+        self.pdf_metadata = PDFMetadata(_doc=original_doc)
         
         # NEW: Instantiate the VirtualPageManager with the generated metadata
         if self.virtual_page_metadata:
