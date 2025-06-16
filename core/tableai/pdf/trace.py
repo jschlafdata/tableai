@@ -764,10 +764,7 @@ class TraceLog:
         if result_format and hasattr(self, 'metadata') and 'sample_images' in self.metadata:
             # Use the new comprehensive format (result overview + execution details)
             self._print_result_focused_summary(include_images, use_json_outline, max_str_len, include_global_functions)
-        else:
-            # Fall back to original detailed trace format
-            self._print_detailed_trace_summary(use_json_outline, max_str_len, include_global_functions, include_images)
-    
+
     def _print_basic_summary_with_images(self, use_json_outline=False, max_str_len=100, include_global_functions=True, include_images=True):
         """Fallback method for basic pretty printing with images."""
         print("🔍 " + "="*60)
@@ -1011,28 +1008,3 @@ class TraceableWorkflow:
         if not self.last_trace:
             print("No workflow has been run yet.")
         return self.last_trace
-
-
-def create_noise_detection_result(trace_log) -> NoiseDetectionResult:
-    """
-    Creates a NoiseDetectionResult from a TraceLog instance.
-    """
-    result = NoiseDetectionResult()
-    
-    # Extract image data if available
-    if hasattr(trace_log, 'metadata') and 'sample_images' in trace_log.metadata:
-        sample_images = trace_log.metadata['sample_images']
-        
-        result.result_image = sample_images.get('annotated_pdf_sample')
-        result.original_image = sample_images.get('original_pdf_sample')
-        result.noise_regions_count = sample_images.get('noise_regions_count', 0)
-        result.content_regions_count = sample_images.get('inverse_regions_count', 0)
-        result.pages_analyzed = sample_images.get('pages_included', 0)
-        result.image_config = sample_images.get('metadata')
-    
-    # Extract parameters used from first step if available
-    if trace_log.steps:
-        first_step = trace_log.steps[0]
-        result.parameters_used = first_step.get('parameters', {})
-    
-    return result
