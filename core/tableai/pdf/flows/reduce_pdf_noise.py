@@ -1,6 +1,9 @@
 from datetime import datetime
 from collections import defaultdict
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
 from pydantic import BaseModel, Field 
 from typing import Optional
 from tableai.pdf.trace import TraceLog, TraceableWorkflow
@@ -339,7 +342,7 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
     
     # Process noise regions to get page structure
     noise_regions_by_page = process_noise_regions(pdf_model, noise_regions)
-    inverse_noise_regions = Map.inverse_page_blocks(noise_regions_by_page)
+    inverse_noise_regions = Geometry.inverse_page_blocks(noise_regions_by_page)
     
     # Generate original PDF sample
     original_pdf_sample = pdf_model.get_page_base64(
@@ -564,7 +567,7 @@ def find_combined_noise_regions(
         form cohesive noise regions (e.g., header text + surrounding white space).
         """
     )
-    merged1 = [Map.merge_all_boxes(g) for g in tg1]
+    merged1 = [Geometry.merge_all_boxes(g) for g in tg1]
 
     # Step 7: Final Spatial Integration with Margins
     tg2 = trace.run_and_log_step(
@@ -580,7 +583,7 @@ def find_combined_noise_regions(
     )
 
     # Step 8: Final Consolidation
-    final = [Map.merge_all_boxes(g) for g in tg2]
+    final = [Geometry.merge_all_boxes(g) for g in tg2]
     trace.run_and_log_step(
         "Step 8: Final Consolidation - Produce merged noise region bounding boxes",
         function=lambda: final,

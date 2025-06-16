@@ -2,7 +2,10 @@ from collections import UserList
 from typing import Optional, List, Tuple, Union, Dict, Any, Callable, TYPE_CHECKING, TypeVar, Generic, Type
 from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field, create_model, field_serializer
 import re
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
 
 class GenericFunctionParams(BaseModel):
     """
@@ -205,7 +208,7 @@ class GroupOps:
         if not bboxes_to_merge:
             return None
             
-        return Map.merge_all_boxes(bboxes_to_merge)
+        return Geometry.merge_all_boxes(bboxes_to_merge)
 
     @staticmethod
     def concat_text(group: 'GroupbyQueryResult', delimiter: str = '|') -> str:

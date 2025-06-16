@@ -3,7 +3,10 @@ from pydantic import BaseModel
 import inspect
 import textwrap
 import hashlib
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
 
 def _describe_callable(fn: Callable) -> str:
     """The same logic used by TraceLog, made standalone for reuse."""

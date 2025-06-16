@@ -3,7 +3,10 @@ import unicodedata
 import dateparser
 from datetime import datetime
 import re
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
 import functools
 from collections import defaultdict
 from tableai.pdf.query import LineTextIndex, QueryParams

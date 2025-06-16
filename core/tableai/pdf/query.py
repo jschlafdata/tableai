@@ -5,7 +5,10 @@ import re
 import fnmatch
 import json
 import fitz
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
 from typing import Optional, List, Tuple, Union, Dict, Any, Callable, TYPE_CHECKING, TypeVar, Generic, Type
 from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field, create_model, field_serializer
 
@@ -511,7 +514,7 @@ class LineTextIndex:
             # Apply exclusion zones
             if exclusion_bboxes:
                 bbox = row.get("bbox")
-                if bbox and any(Map.is_overlapping(bbox, ex_box) for ex_box in exclusion_bboxes):
+                if bbox and any(Geometry.is_overlapping(bbox, ex_box) for ex_box in exclusion_bboxes):
                     continue
     
             # Apply custom bounds filter

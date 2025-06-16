@@ -20,7 +20,11 @@ from tableai.pdf.query import (
     LineTextIndex, 
     GroupbyTransform
 )
-from tableai.pdf.coordinates import Map
+from tableai.pdf.coordinates import (
+    Geometry,
+    CoordinateMapping
+)
+
 from tableai.readers.files import FileReader  # Import your FileReader
 
 __all__ = ["PDFModel"]
@@ -57,46 +61,6 @@ class VirtualPageBounds:
     def tuple(self) -> Tuple[float, float, float, float]:
         return (self.x0, self.y0, self.x1, self.y1)
 
-@dataclass
-class CoordinateMapping:
-    """Handles coordinate transformations between different coordinate systems."""
-    
-    @staticmethod
-    def absolute_to_relative(bbox: Tuple[float, float, float, float], 
-                           page_bounds: VirtualPageBounds) -> Tuple[float, float, float, float]:
-        """Convert absolute coordinates to page-relative coordinates."""
-        x0, y0, x1, y1 = bbox
-        return (
-            x0 - page_bounds.x0,
-            y0 - page_bounds.y0,
-            x1 - page_bounds.x0,
-            y1 - page_bounds.y0
-        )
-    
-    @staticmethod
-    def relative_to_absolute(bbox: Tuple[float, float, float, float], 
-                           page_bounds: VirtualPageBounds) -> Tuple[float, float, float, float]:
-        """Convert page-relative coordinates to absolute coordinates."""
-        x0, y0, x1, y1 = bbox
-        return (
-            x0 + page_bounds.x0,
-            y0 + page_bounds.y0,
-            x1 + page_bounds.x0,
-            y1 + page_bounds.y0
-        )
-    
-    @staticmethod
-    def scale_for_display(bbox: Tuple[float, float, float, float], 
-                         scale_x: float, scale_y: float, 
-                         offset_x: float = 0, offset_y: float = 0) -> Tuple[float, float, float, float]:
-        """Scale coordinates for display rendering."""
-        x0, y0, x1, y1 = bbox
-        return (
-            (x0 - offset_x) * scale_x,
-            (y0 - offset_y) * scale_y,
-            (x1 - offset_x) * scale_x,
-            (y1 - offset_y) * scale_y
-        )
 
 class VirtualPageManager:
     """Centralized manager for virtual page coordinate mapping and metadata."""
@@ -278,7 +242,7 @@ class PDFModel(BaseModel):
         original_doc.close()
 
         self.line_index = LineTextIndex.from_pdf_model(self)
-        
+
         return self
 
     # --------------------------------------------------------------------- #
@@ -325,11 +289,11 @@ class PDFModel(BaseModel):
 
             if not local_content.is_empty:
                 content_rel = tuple(local_content)
-                margin_rel = Map.inverse_page_blocks(
+                margin_rel = Geometry.inverse_page_blocks(
                     {i: {"bboxes": [content_rel], "page_width": pg.rect.width, "page_height": pg.rect.height}}
                 )
-                content_abs = Map.scale_y(content_rel, y_offset)
-                margin_abs = [Map.scale_y(b, y_offset) for b in margin_rel]
+                content_abs = Geometry.scale_y(content_rel, y_offset)
+                margin_abs = [Geometry.scale_y(b, y_offset) for b in margin_rel]
 
                 content_areas["content_bboxes"].append(content_abs)
                 content_areas["margin_bboxes"].extend(margin_abs)

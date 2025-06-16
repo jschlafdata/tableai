@@ -1,8 +1,51 @@
 from __future__ import annotations
+from typing import Tuple, Optional
+from dataclasses import dataclass
 
-__all__ = ["Map"]
+__all__ = ["Geometry"]
 
-class Map:
+@dataclass
+class CoordinateMapping:
+    """Handles coordinate transformations between different coordinate systems."""
+    
+    @staticmethod
+    def absolute_to_relative(bbox: Tuple[float, float, float, float], 
+                           page_bounds: 'VirtualPageBounds') -> Tuple[float, float, float, float]:
+        """Convert absolute coordinates to page-relative coordinates."""
+        x0, y0, x1, y1 = bbox
+        return (
+            x0 - page_bounds.x0,
+            y0 - page_bounds.y0,
+            x1 - page_bounds.x0,
+            y1 - page_bounds.y0
+        )
+    
+    @staticmethod
+    def relative_to_absolute(bbox: Tuple[float, float, float, float], 
+                           page_bounds: 'VirtualPageBounds') -> Tuple[float, float, float, float]:
+        """Convert page-relative coordinates to absolute coordinates."""
+        x0, y0, x1, y1 = bbox
+        return (
+            x0 + page_bounds.x0,
+            y0 + page_bounds.y0,
+            x1 + page_bounds.x0,
+            y1 + page_bounds.y0
+        )
+    
+    @staticmethod
+    def scale_for_display(bbox: Tuple[float, float, float, float], 
+                         scale_x: float, scale_y: float, 
+                         offset_x: float = 0, offset_y: float = 0) -> Tuple[float, float, float, float]:
+        """Scale coordinates for display rendering."""
+        x0, y0, x1, y1 = bbox
+        return (
+            (x0 - offset_x) * scale_x,
+            (y0 - offset_y) * scale_y,
+            (x1 - offset_x) * scale_x,
+            (y1 - offset_y) * scale_y
+        )
+
+class Geometry:
     @staticmethod
     def is_overlapping(boxA, boxB):
         """Return True if boxA and boxB overlap at all."""
@@ -52,7 +95,7 @@ class Map:
         
         for spanning_item in spanning_text_list:
             span_bbox = spanning_item.get('bbox', None)
-            if span_bbox and Map.is_overlapping(bbox, span_bbox):
+            if span_bbox and Geometry.is_overlapping(bbox, span_bbox):
                 return True
                 
         return False
@@ -139,7 +182,7 @@ class Map:
         for box in bboxes:
             has_merged = False
             for i, existing in enumerate(merged):
-                if Map.is_overlapping(box, existing):
+                if Geometry.is_overlapping(box, existing):
                     merged_box = (
                         min(existing[0], box[0]),
                         min(existing[1], box[1]),
