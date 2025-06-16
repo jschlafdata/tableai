@@ -241,7 +241,7 @@ parameter_strategies = {
     
     # === Additional Data for Tracer ===
     annotated_image: Optional[str] = Field(default=None, description="Base64-encoded annotated PDF sample (limited pages)")
-    noise_regions_by_page: Optional[Dict[str, Any]] = Field(default=None, description="Noise regions organized by page")
+    noise_regions_by_page: Optional[Dict[int, Any]] = Field(default=None, description="Noise regions organized by page")
     
     def display_images(self):
         """Display the result and original images if available."""
