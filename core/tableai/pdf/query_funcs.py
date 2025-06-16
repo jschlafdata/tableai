@@ -9,7 +9,7 @@ from tableai.pdf.coordinates import (
 )
 import functools
 from collections import defaultdict
-from tableai.pdf.query import LineTextIndex, QueryParams
+from tableai.pdf.query import FitzSearchIndex, QueryParams
 from tableai.pdf.generic_models import (
     HorizontalWhitespaceParams,
     GroupTouchingBoxesParams, 
@@ -333,7 +333,7 @@ def try_convert_percent(value: str) -> Optional[float]:
     return None
 
 def horizontal_whitespace(
-    line_index: 'LineTextIndex',
+    query_index: 'FitzSearchIndex',
     params: Optional[HorizontalWhitespaceParams] = None,
     **kwargs
 ) -> 'ResultSet':
@@ -349,7 +349,7 @@ def horizontal_whitespace(
         transform=transform_func,
         query_label=p.query_label
     )
-    return line_index.query(params=query_params)
+    return query_index.query(params=query_params)
 
 
 def group_vertically_touching_bboxes(
@@ -406,7 +406,7 @@ def group_vertically_touching_bboxes(
 
 
 def find_paragraph_blocks(
-    line_index: 'LineTextIndex', 
+    query_index: 'FitzSearchIndex', 
     paragraph_seed_lines: List[Dict[str, Any]],
     params: ParagraphsParams
 ) -> List[Dict[str, Any]]:
@@ -416,7 +416,7 @@ def find_paragraph_blocks(
     """
     # Query all text once to have a pool of lines to search for continuations.
     # .to_dict() is efficient for repeated lookups.
-    all_text_rows = line_index.query(QueryParams(key="text")).to_dict()
+    all_text_rows = query_index.query(QueryParams(key="text")).to_dict()
     
     by_page = defaultdict(list)
     for row in all_text_rows:
@@ -500,7 +500,7 @@ def find_paragraph_blocks(
     return output_summaries
 
 def paragraphs(
-    line_index: 'LineTextIndex', 
+    query_index: 'FitzSearchIndex', 
     params: Optional[ParagraphsParams] = None,
     **kwargs
 ) -> 'ResultSet':
@@ -509,7 +509,7 @@ def paragraphs(
     p = p.model_copy(update=kwargs)
 
     # Use functools.partial to pass the finalized params object to the helper
-    transform_func = functools.partial(find_paragraph_blocks, line_index, params=p)
+    transform_func = functools.partial(find_paragraph_blocks, query_index, params=p)
 
     bounds_filter_func = lambda r: (
         r.get("x_span") is not None and
@@ -523,7 +523,7 @@ def paragraphs(
         transform=transform_func,
         query_label=p.query_label or "paragraph"
     )
-    return line_index.query(params=query_params)
+    return query_index.query(params=query_params)
 
 
 def expand_bounds(

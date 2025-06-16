@@ -127,7 +127,7 @@ class GroupbyTransform:
 class QueryParams(BaseModel):
     """
     A comprehensive, self-documenting model for all parameters
-    used by the LineTextIndex.query method.
+    used by the FitzSearchIndex.query method.
     """
     class Config:
         # Pydantic needs this to allow non-serializable types like functions.
@@ -150,7 +150,7 @@ class QueryParams(BaseModel):
     # --- Spatial & Custom Filters ---
     exclude_bounds: Optional[str] = Field(
         default=None,
-        description="The string key of a pre-defined boundary set in the LineTextIndex's restriction_store. Any row whose bbox overlaps with these zones will be EXCLUDED from the results."
+        description="The string key of a pre-defined boundary set in the FitzSearchIndex's restriction_store. Any row whose bbox overlaps with these zones will be EXCLUDED from the results."
     )
     bounds_filter: Optional[Callable[[dict], bool]] = Field(
         default=None,
@@ -186,8 +186,8 @@ class QueryParams(BaseModel):
             
         return value
 
-class LineTextIndex:
-    """Improved LineTextIndex that leverages VirtualPageManager for coordinate handling."""
+class FitzSearchIndex:
+    """Improved FitzSearchIndex that leverages VirtualPageManager for coordinate handling."""
     
     FONT_ATTRS = ['size', 'flags', 'bidi', 'char_flags', 'font', 'color', 'alpha']
 
@@ -237,7 +237,7 @@ class LineTextIndex:
             **kwargs
         ):
         """
-        Create LineTextIndex from a PDFModel, reusing its VirtualPageManager.
+        Create FitzSearchIndex from a PDFModel, reusing its VirtualPageManager.
         
         This is the preferred initialization method as it avoids duplicating
         virtual page logic and ensures consistency with the PDF model.
@@ -289,7 +289,7 @@ class LineTextIndex:
     def flatten_fitz_dict(data, page_num: int, parent_key='', sep='.', result=None, 
                          parent_dict=None, inherited_font_meta=None):
         """Flattens a fitz text dict with font metadata."""
-        FONT_ATTRS = LineTextIndex.FONT_ATTRS
+        FONT_ATTRS = FitzSearchIndex.FONT_ATTRS
         if result is None:
             result = []
         
@@ -301,14 +301,14 @@ class LineTextIndex:
                 font_meta = inherited_font_meta
             for k, v in data.items():
                 new_key = f"{parent_key}{sep}{k}" if parent_key else k
-                LineTextIndex.flatten_fitz_dict(
+                FitzSearchIndex.flatten_fitz_dict(
                     v, page_num, new_key, sep, result, 
                     parent_dict=data, inherited_font_meta=font_meta
                 )
         elif isinstance(data, list):
             for i, item in enumerate(data):
                 new_key = f"{parent_key}[{i}]"
-                LineTextIndex.flatten_fitz_dict(
+                FitzSearchIndex.flatten_fitz_dict(
                     item, page_num, new_key, sep, result,
                     parent_dict=parent_dict, inherited_font_meta=inherited_font_meta
                 )

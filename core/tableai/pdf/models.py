@@ -18,7 +18,7 @@ import numpy as np
 from enum import Enum
 
 from tableai.pdf.query import (
-    LineTextIndex, 
+    FitzSearchIndex, 
     GroupbyTransform
 )
 from tableai.pdf.coordinates import (
@@ -196,8 +196,7 @@ class PDFMetadata:
         trailer = self._doc.pdf_trailer()
         self.meta_version = trailer.get("Version") if isinstance(trailer, dict) else None
         md = self._doc.metadata
-        wanted = ("creator", "title", "author", "subject", "keywords")
-        self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
+        self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in self.metadata_accessors if md.get(k))
         self._doc.close()
     
     @classmethod
@@ -208,14 +207,12 @@ class LoadType(str, Enum):
     FULL = "full"
     FIRST = "first"
 
-# --- REFACTORED PDFModel CLASS ---
-
 class PDFModel(BaseModel):
     """
     High‑level container that:
     1. Loads an input PDF (local path / bytes / S3) via `FileReader`.
     2. Stitches all pages vertically into *one* tall page (“combined doc”).
-    3. Builds a virtual‑page index (`LineTextIndex`) that understands page breaks.
+    3. Builds a virtual‑page index (`FitzSearchIndex`) that understands page breaks.
     4. Offers rich helpers for rendering, cropping, and annotation.
     """
 
@@ -234,7 +231,7 @@ class PDFModel(BaseModel):
     # Populated automatically by the validator
     doc: Optional[fitz.Document] = None
     name: Optional[str] = None
-    line_index: Optional["LineTextIndex"] = None
+    query_index: Optional["FitzSearchIndex"] = None
     pdf_metadata: Optional[PDFMetadata] = None
     virtual_page_metadata: Optional[dict] = None
     
@@ -276,7 +273,7 @@ class PDFModel(BaseModel):
         else:
             raise ValueError("Failed to generate virtual page metadata.")        
 
-        self.line_index = LineTextIndex.from_pdf_model(self, text_normalizer=self.text_normalizer, whitespace_generator=self.whitespace_generator)
+        self.query_index = FitzSearchIndex.from_pdf_model(self, text_normalizer=self.text_normalizer, whitespace_generator=self.whitespace_generator)
 
         return self
 
@@ -668,7 +665,7 @@ class PDFModel(BaseModel):
 #     # Populated automatically by the validator
 #     doc: Optional[fitz.Document] = None
 #     name: Optional[str] = None
-#     line_index: Optional["LineTextIndex"] = None
+#     query_index: Optional["LineTextIndex"] = None
 #     meta_version: Optional[str] = None
 #     meta_tag: Optional[str] = None
 #     virtual_page_metadata: Optional[dict] = None
@@ -700,7 +697,7 @@ class PDFModel(BaseModel):
 #         )
 
 #         # 3. Construct virtual‑aware text index
-#         self.line_index = LineTextIndex.from_document(
+#         self.query_index = LineTextIndex.from_document(
 #             self.doc, virtual_page_metadata=self.virtual_page_metadata
 #         )
 
@@ -817,11 +814,11 @@ class PDFModel(BaseModel):
 #         """
 #         Apply `page_limit` to crop‑ and highlight‑inputs in a single pass.
 #         """
-#         if not hasattr(self, "line_index") or not hasattr(self.line_index, "_get_virtual_page_num"):
+#         if not hasattr(self, "query_index") or not hasattr(self.query_index, "_get_virtual_page_num"):
 #             return highlight_boxes, crop_boxes
 
 #         def within(bbox):
-#             return self.line_index._get_virtual_page_num(bbox[1]) <= page_limit
+#             return self.query_index._get_virtual_page_num(bbox[1]) <= page_limit
 
 #         filt_crop = [b for b in (crop_boxes or []) if within(b)] if crop_boxes else None
 
@@ -1149,7 +1146,7 @@ class PDFModel(BaseModel):
 #     s3_client: Optional[object] = None
 #     doc: Optional[fitz.Document] = None
 #     name: Optional[str] = None
-#     line_index: Optional['LineTextIndex'] = None
+#     query_index: Optional['LineTextIndex'] = None
 #     meta_version: Optional[str] = None
 #     meta_tag: Optional[str] = None
 #     virtual_page_metadata: Optional[dict] = None
@@ -1176,7 +1173,7 @@ class PDFModel(BaseModel):
 #         self.doc, self.virtual_page_metadata = self._combine_pages_and_get_metadata(temp_doc)
         
 #         # 3. Build the "virtually aware" LineTextIndex
-#         self.line_index = LineTextIndex.from_document(
+#         self.query_index = LineTextIndex.from_document(
 #             self.doc, 
 #             virtual_page_metadata=self.virtual_page_metadata
 #         )
@@ -1348,13 +1345,13 @@ class PDFModel(BaseModel):
 #         Returns:
 #             Tuple of (filtered_highlight_boxes, filtered_crop_boxes)
 #         """
-#         if not hasattr(self, 'line_index') or not hasattr(self.line_index, '_get_virtual_page_num'):
+#         if not hasattr(self, 'query_index') or not hasattr(self.query_index, '_get_virtual_page_num'):
 #             # Fallback: return original inputs if we can't determine page numbers
 #             return highlight_boxes, crop_boxes
         
 #         def is_bbox_within_limit(bbox):
 #             """Helper to check if a bbox is within the page limit."""
-#             page_num = self.line_index._get_virtual_page_num(bbox[1])  # y0 coordinate
+#             page_num = self.query_index._get_virtual_page_num(bbox[1])  # y0 coordinate
 #             return page_num <= page_limit
         
 #         # Filter crop_boxes
@@ -1767,7 +1764,7 @@ class PDFModel(BaseModel):
 #     # Populated automatically by the validator
 #     doc: Optional[fitz.Document] = None
 #     name: Optional[str] = None
-#     line_index: Optional["LineTextIndex"] = None
+#     query_index: Optional["LineTextIndex"] = None
 #     meta_version: Optional[str] = None
 #     meta_tag: Optional[str] = None
 #     virtual_page_metadata: Optional[dict] = None
@@ -1799,7 +1796,7 @@ class PDFModel(BaseModel):
 #         )
 
 #         # 3. Construct virtual‑aware text index
-#         self.line_index = LineTextIndex.from_document(
+#         self.query_index = LineTextIndex.from_document(
 #             self.doc, virtual_page_metadata=self.virtual_page_metadata
 #         )
 
@@ -1916,11 +1913,11 @@ class PDFModel(BaseModel):
 #         """
 #         Apply `page_limit` to crop‑ and highlight‑inputs in a single pass.
 #         """
-#         if not hasattr(self, "line_index") or not hasattr(self.line_index, "_get_virtual_page_num"):
+#         if not hasattr(self, "query_index") or not hasattr(self.query_index, "_get_virtual_page_num"):
 #             return highlight_boxes, crop_boxes
 
 #         def within(bbox):
-#             return self.line_index._get_virtual_page_num(bbox[1]) <= page_limit
+#             return self.query_index._get_virtual_page_num(bbox[1]) <= page_limit
 
 #         filt_crop = [b for b in (crop_boxes or []) if within(b)] if crop_boxes else None
 

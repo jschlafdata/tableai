@@ -10,11 +10,12 @@ from tableai.pdf.trace import TraceLog, TraceableWorkflow
 from tableai.pdf.models import PDFModel
 from tableai.pdf.generic_models import (
     GenericFunctionParams,
-    GroupOps
-)
-from tableai.pdf.query import (
+    GroupOps, 
     TextNormalizer, 
-    WhitespaceGenerator, 
+    WhitespaceGenerator 
+)
+
+from tableai.pdf.query import (
     groupby,
     regroup_by_key,
     QueryParams
@@ -194,7 +195,7 @@ noise_params = NoiseRegionParams(
     WHITESPACE_TOLERANCE=15,            # Tolerance for horizontal whitespace detection (increased from 10)
     TOUCHING_TOLERANCE=3.0,             # Tolerance for merging spatially adjacent regions (reduced from 5.0)
     
-    # === LineTextIndex Query Configuration ===
+    # === FitzSearchIndex Query Configuration ===
     BLOCK_GROUP_QUERY_INCLUDED_VALUES=[  # Fields to include in the groupby transformation
         "bbox", 
         "path", 
@@ -354,8 +355,8 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         noise_regions_by_page = defaultdict(lambda: {'bboxes': []})
         
         for region in noise_regions:
-            # Use VPM directly instead of LineTextIndex wrapper
-            page_info = pdf_model.line_index.get_virtual_page_wh(region)
+            # Use VPM directly instead of FitzSearchIndex wrapper
+            page_info = pdf_model.query_index.get_virtual_page_wh(region)
             pg_num = page_info['page_number']
             
             page_data = noise_regions_by_page[pg_num]
@@ -482,11 +483,11 @@ def find_combined_noise_regions(
         'whitespace_generator': line_index_config['whitespace_generator'].to_dict()
     }
     
-    line_index = trace.run_and_log_step(
-        "Step 0: LineTextIndex Configuration & Initialization",
-        function=lambda: pdf_model.line_index,  # Use existing line_index (already configured)
+    query_index = trace.run_and_log_step(
+        "Step 0: FitzSearchIndex Configuration & Initialization",
+        function=lambda: pdf_model.query_index,  # Use existing line_index (already configured)
         params=line_index_trace_config,
-        description="Configures the LineTextIndex with TextNormalizer and WhitespaceGenerator models. TextNormalizer standardizes recurring text patterns (like page numbers) while WhitespaceGenerator detects full-width vertical whitespace regions that often accompany header/footer content."
+        description="Configures the FitzSearchIndex with TextNormalizer and WhitespaceGenerator models. TextNormalizer standardizes recurring text patterns (like page numbers) while WhitespaceGenerator detects full-width vertical whitespace regions that often accompany header/footer content."
     )
 
     # Step 1: Foundation Data Gathering
@@ -500,8 +501,8 @@ def find_combined_noise_regions(
     )
     grouped = trace.run_and_log_step(
         "Step 1: Foundation Data Gathering - Group all text lines by block identifier",
-        function=lambda: line_index.query(params=base_q),
-        log_function=line_index.query,
+        function=lambda: query_index.query(params=base_q),
+        log_function=query_index.query,
         params=base_q,
         description="""
         Creates the foundation dataset by grouping all text elements in the PDF 
@@ -558,7 +559,7 @@ def find_combined_noise_regions(
     ws_p = HorizontalWhitespaceParams(y_tolerance=p.WHITESPACE_TOLERANCE)
     whitespace = trace.run_and_log_step(
         "Step 4: Horizontal Whitespace Integration - Detect full-width whitespace regions",
-        function=lambda: horizontal_whitespace(line_index, params=ws_p).pluck('bbox'),
+        function=lambda: horizontal_whitespace(query_index, params=ws_p).pluck('bbox'),
         log_function=horizontal_whitespace,
         params=ws_p,
         description="""
