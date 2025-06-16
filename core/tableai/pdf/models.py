@@ -21,7 +21,6 @@ from tableai.pdf.query import (
     GroupbyTransform
 )
 from tableai.pdf.coordinates import Map
-from tableai.pdf.query_engine import QueryEngine
 from tableai.readers.files import FileReader  # Import your FileReader
 
 __all__ = ["PDFModel"]
@@ -38,7 +37,6 @@ class PDFModel(BaseModel):
     doc: Optional[fitz.Document] = None
     name: Optional[str] = None
     line_index: Optional['LineTextIndex'] = None
-    query_engine: Optional[QueryEngine] = None
     meta_version: Optional[str] = None
     meta_tag: Optional[str] = None
     virtual_page_metadata: Optional[dict] = None
@@ -69,9 +67,6 @@ class PDFModel(BaseModel):
             self.doc, 
             virtual_page_metadata=self.virtual_page_metadata
         )
-
-        # 4. Initialize the Query Engine
-        self.query_engine = QueryEngine(self.line_index)
         
         # 5. Extract Document Metadata
         md = self.doc.metadata
