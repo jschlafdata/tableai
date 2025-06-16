@@ -88,20 +88,14 @@ class TraceReportGenerator:
         
         def format_outline(value, max_str_len=100):
             """Format nested dict/list as outline."""
-            return self._format_json_outline(value, max_str_len=max_str_len)
+            lines = self._format_json_outline(value, max_str_len=max_str_len)
+            return '\n'.join(lines)
         
-        def get_field_sections(result_obj):
-            """Extract field sections from result object."""
-            if hasattr(result_obj, '_extract_sections_from_fields'):
-                return result_obj._extract_sections_from_fields()
-            return {}
-        
-        # Register filters
-        self.jinja_env.filters['json'] = format_json
-        self.jinja_env.filters['datetime'] = format_datetime
-        self.jinja_env.filters['truncate'] = truncate_string
-        self.jinja_env.filters['outline'] = format_outline
-        self.jinja_env.filters['field_sections'] = get_field_sections
+        # Register filters - use simple lambda wrappers to avoid argument issues
+        self.jinja_env.filters['json'] = lambda x, indent=2: format_json(x, indent)
+        self.jinja_env.filters['datetime'] = lambda x, fmt='%Y-%m-%d %H:%M:%S': format_datetime(x, fmt)
+        self.jinja_env.filters['truncate'] = lambda x, length=100: truncate_string(x, length)
+        self.jinja_env.filters['outline'] = lambda x, max_len=100: format_outline(x, max_len)
     
     def _setup_templates(self):
         """Define Jinja2 templates for different report formats."""
@@ -159,7 +153,7 @@ class TraceReportGenerator:
 ## ⚙️ Optional Parameters for Refinement
 {{ result_obj.process_optional_parameters }}
 {%- endif %}
-        """)
+        """.strip())
         
         # Template for LLM-friendly reports
         self.llm_template = self.jinja_env.from_string("""
@@ -224,7 +218,7 @@ PROCESS REFINEMENT OPTIONS:
 {{ "-" * 50 }}
 {{ result_obj.process_optional_parameters }}
 {%- endif %}
-        """)
+        """.strip())
     
     def generate_visual_report(self, 
                              trace: 'TraceLog', 
