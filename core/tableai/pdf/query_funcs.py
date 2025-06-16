@@ -4,6 +4,38 @@ import dateparser
 from datetime import datetime
 import re
 from tableai.pdf.coordinates import Map
+import functools
+from collections import defaultdict
+from tableai.pdf.models import (
+    GenericFunctionParams, 
+    QueryParams
+)
+from tableai.pdf.query import LineTextIndex
+
+# For horizontal_whitespace
+HorizontalWhitespaceParams = GenericFunctionParams.create_custom_model(
+    "HorizontalWhitespaceParams", {
+        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within." },
+        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace." }
+    }
+)
+
+# For group_vertically_touching_bboxes
+GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
+    "GroupTouchingBoxesParams", {
+        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'." }
+    }
+)
+
+# For paragraphs -> find_paragraph_blocks
+ParagraphsParams = GenericFunctionParams.create_custom_model(
+    "ParagraphsParams", {
+        'width_threshold': { 'type': float, 'default': 0.5, 'description': "Minimum relative width (0.0-1.0) for a line to be a paragraph seed." },
+        'x0_tol': { 'type': float, 'default': 2.0, 'description': "Tolerance for x0 alignment between paragraph lines." },
+        'font_size_tol': { 'type': float, 'default': 0.2, 'description': "Tolerance for font size similarity between lines." },
+        'y_gap_max': { 'type': float, 'default': 7.0, 'description': "Maximum vertical gap allowed between lines in a paragraph." }
+    }
+)
 
 def search_normalized_text(
     rows: List[Dict[str, Any]],
@@ -321,53 +353,198 @@ def try_convert_percent(value: str) -> Optional[float]:
 
     return None
 
+def horizontal_whitespace(
+    line_index: 'LineTextIndex',
+    params: Optional[HorizontalWhitespaceParams] = None,
+    **kwargs
+) -> 'ResultSet':
+    """Finds full-width whitespace blocks using a self-initializing parameter model."""
+    p = params or HorizontalWhitespaceParams()
+    p = p.model_copy(update=kwargs)
 
-def compute_full_width_v_whitespace(by_page, page_metadata, min_gap: float = 5.0) -> List[Dict[str, Any]]:
+    transform_func = lambda rows: [r for r in rows if r["gap"] >= p.y_tolerance]
+
+    query_params = QueryParams(
+        page=p.page_number,
+        key="full_width_v_whitespace",
+        transform=transform_func,
+        query_label=p.query_label
+    )
+    return line_index.query(params=query_params)
+
+
+def group_vertically_touching_bboxes(
+    whitespace_blocks: List[Tuple[float, ...]], 
+    header_footer_blocks: List[Tuple[float, ...]],
+    params: Optional[GroupTouchingBoxesParams] = None,
+    **kwargs
+) -> List[List[Tuple[float, ...]]]:
+    """Groups vertically touching bboxes using a self-initializing parameter model."""
+    p = params or GroupTouchingBoxesParams()
+    p = p.model_copy(update=kwargs)
+
+    bboxes = whitespace_blocks + header_footer_blocks
+    
+    # Handle edge case of an empty list
+    if not bboxes:
+        return []
+
+    # --- OPTIMIZATION: Convert to a set for fast O(1) lookups later ---
+    # This is the key to making the final filtering step efficient.
+    header_footer_set: Set[Tuple[float, ...]] = set(header_footer_blocks)
+
+    # 1. Sort bboxes by their top coordinate (y0)
+    sorted_bboxes = sorted(bboxes, key=lambda b: b[1])
+
+    # 2. Initialize the first group
+    all_groups: List[List[Tuple[float, ...]]] = []
+    current_group: List[Tuple[float, ...]] = [sorted_bboxes[0]]
+
+    # 3. Iterate and group based on vertical proximity
+    for i in range(1, len(sorted_bboxes)):
+        current_bbox = sorted_bboxes[i]
+        previous_bbox_in_chain = current_group[-1]
+        
+        gap = current_bbox[1] - previous_bbox_in_chain[3]  # current.y0 - previous.y1
+
+        if gap <= p.y_tolerance:
+            current_group.append(current_bbox)
+        else:
+            all_groups.append(current_group)
+            current_group = [current_bbox]
+
+    # 4. Add the last group
+    if current_group:
+        all_groups.append(current_group)
+        
+    # --- CORRECTED FILTERING LOGIC ---
+    # Use a list comprehension that checks for membership in the efficient set.
+    # For each 'group', keep it if 'any' 'bbox' in that group exists in the 'header_footer_set'.
+    return [
+        group for group in all_groups 
+        if any(bbox in header_footer_set for bbox in group)
+    ]
+
+
+def find_paragraph_blocks(
+    line_index: 'LineTextIndex', 
+    paragraph_seed_lines: List[Dict[str, Any]],
+    params: ParagraphsParams
+) -> List[Dict[str, Any]]:
     """
-    Detect vertical whitespace regions that span the full width of the page.
-
-    Args:
-        by_page: the indexed content by page
-        page_metadata: metadata with width/height per page
-        min_gap: minimum vertical gap (in pts) to consider
-
-    Returns:
-        List of whitespace row dicts to be injected into LineTextIndex
+    Finds and groups paragraph blocks, outputting a list of dictionaries that
+    conform to the GroupbyQueryResult schema.
     """
-    results = []
+    # Query all text once to have a pool of lines to search for continuations.
+    # .to_dict() is efficient for repeated lookups.
+    all_text_rows = line_index.query(QueryParams(key="text")).to_dict()
+    
+    by_page = defaultdict(list)
+    for row in all_text_rows:
+        by_page[row['page']].append(row)
+    
+    # Sort each page's text by vertical position
+    for page_rows in by_page.values():
+        page_rows.sort(key=lambda r: r.get('y0') or 0.0)
 
-    for page_num, rows in by_page.items():
-        spans = [r for r in rows if r.get("key") == "text" and r.get("bbox")]
-        spans = sorted(spans, key=lambda r: r["y0"])
-        page_width = page_metadata.get(page_num, {}).get("width", 612.0)  # fallback default A4 width
+    # A set to track which lines have already been assigned to a paragraph
+    seen = set()
+    output_summaries = []
 
-        for i in range(len(spans) - 1):
-            a, b = spans[i], spans[i + 1]
-            gap = b["y0"] - a["y1"]
-            if gap >= min_gap:
-                y0 = a["y1"]
-                y1 = b["y0"]
-                results.append({
-                    "page": page_num,
-                    "block": -1,
-                    "line": -1,
-                    "span": -1,
-                    "index": -1,
-                    "key": "full_width_v_whitespace",
-                    "value": "",
-                    "path": None,
-                    "gap": gap,
-                    "bbox": (0.0, y0, page_width, y1),
-                    "x0": 0.0,
-                    "y0": y0,
-                    "x1": page_width,
-                    "y1": y1,
-                    "x_span": page_width,
-                    "y_span": y1 - y0,
-                    "meta": {"gap_class": "large" if gap > 20 else "small"}
-                })
+    for seed_line in paragraph_seed_lines:
+        page, idx = seed_line['page'], seed_line['index']
 
-    return results
+        if (page, idx) in seen:
+            continue
+
+        # Start a new paragraph group with the seed line
+        current_para_members = [seed_line]
+        seen.add((page, idx))
+        
+        # Get font info from the seed line to ensure consistency
+        font_size = seed_line['font_meta']['size'] if seed_line.get('font_meta') else None
+        font_name = seed_line['font_meta']['font'] if seed_line.get('font_meta') else None
+        
+        prev_line = seed_line
+        
+        # ---- The Core Chaining Logic (largely the same) ----
+        while True:
+            # Find all unused lines below the current line that could be a continuation
+            candidates = [
+                row for row in by_page[page]
+                if (page, row['index']) not in seen
+                and row.get('x0') is not None
+                and abs(row['x0'] - prev_line['x0']) <= params.x0_tol
+                and row.get('font_meta') and row['font_meta']['font'] == font_name
+                and (font_size is None or abs(row['font_meta']['size'] - font_size) < font_size_tol)
+                and row.get('value', '').strip()
+                and row.get('y0') is not None
+                and 0 < (row['y0'] - prev_line['y1']) < params.y_gap_max
+            ]
+            if not candidates:
+                break
+            
+            # The true next line is the one with the smallest vertical gap
+            next_line = min(candidates, key=lambda r: r['y0'])
+            
+            current_para_members.append(next_line)
+            seen.add((page, next_line['index']))
+            prev_line = next_line
+
+        if not current_para_members:
+            continue
+
+        first_member = current_para_members[0]
+        
+        summary = {
+            # --- Key fields for GroupbyQueryResult ---
+            "group_id": (first_member['page'], first_member['index']), # A unique ID for the paragraph
+            "groupby_keys": ("paragraph_group",), # A conceptual key
+            "member_count": len(current_para_members),
+            "query_label": "paragraph",
+
+            # --- Consistent fields (copied from first member) ---
+            "page": first_member.get('page'),
+            "region": first_member.get('region'),
+            "physical_page": first_member.get('physical_page'),
+            "physical_page_bounds": first_member.get('physical_page_bounds'),
+            "meta": first_member.get('meta', {}),
+            
+            # --- Aggregated fields (collected from all members) ---
+            "group_bboxes": [m['bbox'] for m in current_para_members if m.get('bbox')],
+            "group_paths": [m['path'] for m in current_para_members if m.get('path')],
+            "group_text": [m['value'] for m in current_para_members if m.get('value')],
+            "group_indices": [m['index'] for m in current_para_members if m.get('index') is not None]
+        }
+        output_summaries.append(summary)
+
+    return output_summaries
+
+def paragraphs(
+    line_index: 'LineTextIndex', 
+    params: Optional[ParagraphsParams] = None,
+    **kwargs
+) -> 'ResultSet':
+    """Finds and groups lines into paragraphs using a self-initializing parameter model."""
+    p = params or ParagraphsParams()
+    p = p.model_copy(update=kwargs)
+
+    # Use functools.partial to pass the finalized params object to the helper
+    transform_func = functools.partial(find_paragraph_blocks, line_index, params=p)
+
+    bounds_filter_func = lambda r: (
+        r.get("x_span") is not None and
+        r.get("page_width_rel") is not None and r["page_width_rel"] > 0 and
+        (r["x_span"] / r["page_width_rel"]) > p.width_threshold
+    )
+
+    query_params = QueryParams(
+        key="text",
+        bounds_filter=bounds_filter_func,
+        transform=transform_func,
+        query_label=p.query_label or "paragraph"
+    )
+    return line_index.query(params=query_params)
 
 
 def expand_bounds(
@@ -405,98 +582,4 @@ def expand_bounds(
                     bbox[3] = height      # y1 = height (bottom)
                 group[bbox_key] = tuple(bbox)
         return groups
-    return _transform
-
-def find_paragraph_blocks(line_index, paragraph_lines, x0_tol=2.0, font_size_tol=0.2, y_gap_min=0.1, y_gap_max=7.0):
-    """
-    Finds paragraph blocks even if lines are in different blocks, using y-coord and font info.
-    """
-    all_text = [row for row in line_index.query(key="text")]
-    by_page = defaultdict(list)
-    for row in all_text:
-        by_page[row['page']].append(row)
-    for page_rows in by_page.values():
-        page_rows.sort(key=lambda r: r['y0'])
-
-    paragraphs = []
-    seen = set()
-
-    for para in paragraph_lines:
-        page, idx, y0 = para['page'], para['index'], para['y0']
-        font_size = para['font_meta']['size'] if para['font_meta'] else None
-        font_name = para['font_meta']['font'] if para['font_meta'] else None
-        x0 = para['x0']
-
-        if (page, idx) in seen:
-            continue
-
-        current_para = [para]
-        seen.add((page, idx))
-        prev_line = para
-        prev_y1 = prev_line['y1']
-
-        while True:
-            # Find all unused lines below current line, on same page,
-            # with similar x0, font, size, and y0 just below current y1.
-            candidates = [
-                row for row in by_page[page]
-                if (page, row['index']) not in seen
-                and abs(row['x0'] - x0) <= x0_tol
-                and row['font_meta'] and row['font_meta']['font'] == font_name
-                and (font_size is None or abs(row['font_meta']['size'] - font_size) < font_size_tol)
-                and row['value'].strip()
-                and -2.5 < (row['y0'] - prev_y1) < y_gap_max
-            ]
-            if not candidates:
-                break
-            # Always choose the closest y0 (lowest gap) as the true continuation
-            next_row = min(candidates, key=lambda r: r['y0'])
-            current_para.append(next_row)
-            seen.add((page, next_row['index']))
-            prev_line = next_row
-            prev_y1 = prev_line['y1']
-
-        # Merge logic as before
-        full_text = " ".join(line["value"] for line in current_para if line.get("value"))
-        all_bboxes = [line["bbox"] for line in current_para if line.get("bbox")]
-        merged_bbox = Map.merge_all_boxes(all_bboxes) if all_bboxes else None
-        first = current_para[0]
-        merged = dict(first)
-        merged["value"] = full_text
-        merged["bbox"] = merged_bbox
-        if merged_bbox and len(merged_bbox) == 4:
-            merged["x0"], merged["y0"], merged["x1"], merged["y1"] = merged_bbox
-            merged["x_span"] = merged["x1"] - merged["x0"]
-            merged["y_span"] = merged["y1"] - merged["y0"]
-        merged["lines_merged"] = [line["line"] for line in current_para]
-        merged["blocks_merged"] = [line["block"] for line in current_para]
-        merged["num_lines"] = len(current_para)
-        paragraphs.append(merged)
-
-    return paragraphs
-
-
-def merge_result_group_bounds(query_label=None):
-    def _transform(groups):
-        out = []
-        for group in groups:
-            if not group:
-                continue
-            group_id = group[0].get("group_id")
-            page = group[0].get("page")
-            region = group[0].get("region")
-            meta = group[0].get("meta", {})  # <<-- Make sure meta comes along!
-            bbox = Map.merge_all_boxes([row['bbox'] for row in group])
-            summary = {
-                "group_id": group_id,
-                "page": page,
-                "region": region,
-                "meta": meta,  # <<-- Carry it to the summary
-                "bbox": bbox,
-                "source_grouped_metadata": group
-            }
-            if query_label:
-                summary["query_label"] = query_label
-            out.append(summary)
-        return out
     return _transform

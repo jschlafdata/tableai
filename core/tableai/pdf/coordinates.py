@@ -152,73 +152,53 @@ class Map:
             if not has_merged:
                 merged.append(box)
         return merged
-    
-    @staticmethod
-    def translate_bbox_to_virtual_page(bbox, page_num, pdf_metadata):
-        """
-        Translate a bbox from its original page coords to a single virtual page.
-
-        Args:
-            bbox: (x0, y0, x1, y1) for the given page
-            page_num: which page this bbox is from (int)
-            pdf_metadata: dict like {page_num: {'width': ..., 'height': ...}, ...}
-        
-        Returns:
-            (x0_new, y0_new, x1_new, y1_new) on the single virtual page
-        """
-        # Stack pages vertically; y offset is the sum of all previous page heights
-        y_offset = sum(pdf_metadata[p]['height'] for p in range(page_num))
-        x0, y0, x1, y1 = bbox
-        return (x0, y0 + y_offset, x1, y1 + y_offset)
 
     @staticmethod
-    def get_virtual_page_size(pdf_metadata):
-        """
-        Return (width, height) of the combined virtual page.
-        Assumes all pages are the same width (common in PDFs).
-        """
-        total_height = sum(m['height'] for m in pdf_metadata.values())
-        first_page = min(pdf_metadata.keys())
-        width = pdf_metadata[first_page]['width']
-        return (width, total_height)
+    def scale_y(bbox: Optional[list] = None, y_offset: Optional[int]=0, *args):
+        if bbox:
+            return (bbox[0], bbox[1] + y_offset, bbox[2], bbox[3] + y_offset)
+        else:
+            return (args[0], args[1] + y_offset, args[2], args[3] + y_offset)
 
     @staticmethod
-    def create_inverse_blocks(page_width, page_height, recurring_blocks):
+    def inverse_page_blocks(regions_by_page):
         """
-        Returns the inverse of recurring blocks for a single page.
-        The result is a list of blocks covering all vertical space *not* in any recurring block.
+        Returns the inverse of recurring blocks treating all pages as continuous coordinate space.
         
         Args:
-            page_width (float): Width of the page
-            page_height (float): Height of the page
-            recurring_blocks (list): List of blocks [x0, y0, x1, y1]
+            noise_regions_by_page (dict): Result from process_noise_regions function
+                Format: {page_num: {'bboxes': [...], 'page_width': float, 'page_height': float}}
         
         Returns:
-            list: Inverse blocks as [x0, y0, x1, y1]
+            list: Inverse blocks as [x0, y0, x1, y1] covering gaps between noise regions
         """
-        if not recurring_blocks:
-            # No recurring blocks? The whole page is inverse!
-            return [[0, 0, page_width, page_height]]
+        # Collect all noise regions from all pages into a single list
+        all_regions = []
+        page_width = None
         
-        # Sort by y0 (top of block)
-        recurring_blocks = sorted(recurring_blocks, key=lambda block: block[1])
+        for page_num, page_data in regions_by_page.items():
+            page_width = page_data['page_width']  # Should be same for all pages
+            all_regions.extend(page_data['bboxes'])
+        
+        if not all_regions:
+            # No noise regions? Return empty list since we don't know document bounds
+            return []
+        
+        # Sort all noise regions by y0 (top coordinate)
+        sorted_regions = sorted(all_regions, key=lambda region: region[1])
+        
         inverse_blocks = []
         
-        # 1. From top of page to first block
-        first = recurring_blocks[0]
+        # 1. From top of document (y=0) to first noise region
+        first = sorted_regions[0]
         if first[1] > 0:
             inverse_blocks.append([0, 0, page_width, first[1]])
         
-        # 2. Between blocks
-        for i in range(len(recurring_blocks) - 1):
-            curr = recurring_blocks[i]
-            nxt = recurring_blocks[i + 1]
-            if curr[3] < nxt[1]:  # Only if there is a gap
+        # 2. Between noise regions (find gaps)
+        for i in range(len(sorted_regions) - 1):
+            curr = sorted_regions[i]
+            nxt = sorted_regions[i + 1]
+            if curr[3] < nxt[1]:  # Only if there is a gap between regions
                 inverse_blocks.append([0, curr[3], page_width, nxt[1]])
-        
-        # 3. From last block to bottom of page
-        last = recurring_blocks[-1]
-        if last[3] < page_height:
-            inverse_blocks.append([0, last[3], page_width, page_height])
         
         return inverse_blocks
