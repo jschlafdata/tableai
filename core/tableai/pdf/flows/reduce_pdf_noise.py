@@ -5,10 +5,10 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from tableai.pdf.trace import TraceLog, TraceableWorkflow
 from tableai.pdf.models import (
-    GenericFunctionParams, 
     QueryParams, 
     PDFModel
 )
+from tableai.pdf.generic_models import GenericFunctionParams
 from tableai.pdf.query import (
     TextNormalizer, 
     WhitespaceGenerator, 

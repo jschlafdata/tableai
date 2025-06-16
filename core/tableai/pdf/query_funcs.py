@@ -7,34 +7,13 @@ from tableai.pdf.coordinates import Map
 import functools
 from collections import defaultdict
 from tableai.pdf.models import (
-    GenericFunctionParams, 
     QueryParams
 )
 from tableai.pdf.query import LineTextIndex
-
-# For horizontal_whitespace
-HorizontalWhitespaceParams = GenericFunctionParams.create_custom_model(
-    "HorizontalWhitespaceParams", {
-        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within." },
-        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace." }
-    }
-)
-
-# For group_vertically_touching_bboxes
-GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
-    "GroupTouchingBoxesParams", {
-        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'." }
-    }
-)
-
-# For paragraphs -> find_paragraph_blocks
-ParagraphsParams = GenericFunctionParams.create_custom_model(
-    "ParagraphsParams", {
-        'width_threshold': { 'type': float, 'default': 0.5, 'description': "Minimum relative width (0.0-1.0) for a line to be a paragraph seed." },
-        'x0_tol': { 'type': float, 'default': 2.0, 'description': "Tolerance for x0 alignment between paragraph lines." },
-        'font_size_tol': { 'type': float, 'default': 0.2, 'description': "Tolerance for font size similarity between lines." },
-        'y_gap_max': { 'type': float, 'default': 7.0, 'description': "Maximum vertical gap allowed between lines in a paragraph." }
-    }
+from tableai.pdf.generic_models import (
+    HorizontalWhitespaceParams,
+    GroupTouchingBoxesParams, 
+    ParagraphsParams
 )
 
 def search_normalized_text(
