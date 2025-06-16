@@ -2,6 +2,7 @@ from collections import UserList
 from typing import Optional, List, Tuple, Union, Dict, Any, Callable, TYPE_CHECKING, TypeVar, Generic, Type
 from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field, create_model, field_serializer
 import re
+from tableai.pdf.coordinates import Map
 
 class GenericFunctionParams(BaseModel):
     """
