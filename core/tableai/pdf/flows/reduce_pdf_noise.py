@@ -287,6 +287,24 @@ parameter_strategies = {
         lines.append(self.process_optional_parameters)
         
         return "\n".join(lines)
+    
+    @property
+    def tracer_metadata(self) -> Dict[str, Any]:
+        """Get metadata dictionary suitable for workflow tracer logging."""
+        return {
+            'sample_images': {
+                'result_pdf_image': self.result_image,
+                'original_pdf_sample': self.original_image,
+                'annotated_pdf_sample': getattr(self, 'annotated_image', None),
+                'noise_regions_count': self.noise_regions_count,
+                'inverse_regions_count': self.content_regions_count,
+                'noise_regions_by_page': getattr(self, 'noise_regions_by_page', None),
+                'inverse_noise_regions': self.content_regions,
+                'pages_included': self.pages_analyzed,
+                'metadata': self.image_config or {}
+            },
+            'image_config': self.image_config or {}
+        }
 
 def _generate_noise_detection_images(pdf_model, noise_regions, params):
     """
@@ -298,7 +316,7 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         params: NoiseRegionParams instance
     
     Returns:
-        Dict containing base64 images and metadata
+        NoiseDetectionResult: Complete result object with images and metadata
     """
     def process_noise_regions(pdf_model, noise_regions):
         """Single-pass processing with proper defaultdict initialization."""
@@ -344,16 +362,41 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         box_width=params.IMAGE_BOX_WIDTH,
         font_size=params.IMAGE_FONT_SIZE
     )
+
+    # Generate final result image (full PDF without page limit)
+    result_pdf_image = pdf_model.get_page_base64(
+        highlight_boxes={
+            'InverseNoiseBounds': {
+                'color': params.INVERSE_BOX_COLOR, 
+                'boxes': inverse_noise_regions
+            }
+        },
+        zoom=params.IMAGE_ZOOM,
+        spacing=params.IMAGE_SPACING,
+        page_limit=None  # Include all pages for final result
+    )
     
-    return {
-        'original_pdf_sample': original_pdf_sample,
-        'annotated_pdf_sample': annotated_pdf_sample,
-        'noise_regions_count': len(noise_regions),
-        'inverse_regions_count': len(inverse_noise_regions),
-        'noise_regions_by_page': noise_regions_by_page, 
-        'inverse_noise_regions': inverse_noise_regions,         
-        'pages_included': params.IMAGE_PAGE_LIMIT + 1,  # +1 because page_limit is 0-based
-        'metadata': {
+    # Build NoiseDetectionResult object
+    result = NoiseDetectionResult(
+        # Core result images
+        result_image=result_pdf_image,
+        original_image=original_pdf_sample,
+        
+        # Result metadata
+        noise_regions_count=len(noise_regions),
+        content_regions_count=len(inverse_noise_regions),
+        pages_analyzed=len(noise_regions_by_page),
+        
+        # Processing metadata
+        parameters_used={
+            'HEADER_BOUND': params.HEADER_BOUND,
+            'FOOTER_BOUND': params.FOOTER_BOUND,
+            'MIN_OCCURRENCES': params.MIN_OCCURRENCES,
+            'WHITESPACE_TOLERANCE': params.WHITESPACE_TOLERANCE,
+            'TOUCHING_TOLERANCE': params.TOUCHING_TOLERANCE,
+            'query_label': params.query_label
+        },
+        image_config={
             'zoom': params.IMAGE_ZOOM,
             'spacing': params.IMAGE_SPACING,
             'page_limit': params.IMAGE_PAGE_LIMIT,
@@ -361,9 +404,18 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
             'font_size': params.IMAGE_FONT_SIZE,
             'noise_color': params.NOISE_BOX_COLOR,
             'inverse_color': params.INVERSE_BOX_COLOR
-        }
-    }
-
+        },
+        
+        # Technical results (raw data)
+        noise_regions=noise_regions,
+        content_regions=inverse_noise_regions
+    )
+    
+    # Add additional data needed for tracer metadata (using setattr to add non-field attributes)
+    setattr(result, 'annotated_image', annotated_pdf_sample)
+    setattr(result, 'noise_regions_by_page', noise_regions_by_page)
+    
+    return result
 
 def find_combined_noise_regions(
     pdf_model: 'PDFModel',
@@ -536,27 +588,18 @@ def find_combined_noise_regions(
         """
     )
 
-    if p.GENERATE_IMAGES:
-        sample_images = trace.run_and_log_step(
-            "Step 9: Generate Sample Images - Create original and annotated PDF previews",
-            function=lambda: _generate_noise_detection_images(pdf_model, final, p),
-            description="""
-            Generates base64-encoded sample images showing:
-            1. Original PDF pages within page limit
-            2. Annotated PDF with noise regions (red) and content regions (blue) highlighted
-            These images provide visual confirmation of the noise detection results.
-            """
-        )
-        
-        # Add images to trace metadata
-        trace.add_metadata({
-            'sample_images': sample_images,
-            'image_config': {
-                'zoom': p.IMAGE_ZOOM,
-                'page_limit': p.IMAGE_PAGE_LIMIT,
-                'box_width': p.IMAGE_BOX_WIDTH,
-                'font_size': p.IMAGE_FONT_SIZE
-            }
-        })
+    process_result = trace.run_and_log_step(
+        "Step 9: Generate Sample Images - Create original and annotated PDF previews",
+        function=lambda: _generate_noise_detection_images(pdf_model, final, p),
+        description="""
+        Generates base64-encoded sample images showing:
+        1. Original PDF pages within page limit
+        2. Annotated PDF with noise regions (red) and content regions (blue) highlighted
+        These images provide visual confirmation of the noise detection results.
+        """
+    )
+    
+    # Add images to trace metadata
+    trace.add_metadata({process_result.tracer_metadata})
 
-    return final
+    return process_result
