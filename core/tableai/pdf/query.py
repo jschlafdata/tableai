@@ -40,6 +40,8 @@ class GroupbyTransform:
             "x_span": "group_x_spans",
             "y_span": "group_y_spans",
             "region": "group_regions",
+            "text": "group_text",
+            "normalized_text": "group_normalized_text",  
             "normalized_value": "group_normalized_values",
             "path": "group_paths",
             "bbox(rel)": "group_bboxes_rel"
@@ -452,6 +454,7 @@ class FitzSearchIndex:
         
         p = params or QueryParams()
         final_params = p.model_copy(update=kwargs)
+        print(f"final_params: {final_params}")
     
         # Get exclusion zones if a key is provided
         exclusion_bboxes = []
