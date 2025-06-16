@@ -380,8 +380,8 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         page_limit=None  # Include all pages for final result
     )
     
-    # Build NoiseDetectionResult object
-    result = NoiseDetectionResult(
+    # Build and return NoiseDetectionResult object
+    return NoiseDetectionResult(
         # Core result images
         result_image=result_pdf_image,
         original_image=original_pdf_sample,
@@ -418,8 +418,7 @@ def _generate_noise_detection_images(pdf_model, noise_regions, params):
         annotated_image=annotated_pdf_sample,
         noise_regions_by_page=noise_regions_by_page
     )
-    
-    return result
+
 
 def find_combined_noise_regions(
     pdf_model: 'PDFModel',
