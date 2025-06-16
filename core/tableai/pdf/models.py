@@ -31,6 +31,188 @@ try:
 except ImportError:
     _IPYTHON_AVAILABLE = False
 
+
+@dataclass
+class VirtualPageBounds:
+    """Represents bounds for a virtual page."""
+    page_number: int
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+    
+    @property
+    def width(self) -> float:
+        return self.x1 - self.x0
+    
+    @property
+    def height(self) -> float:
+        return self.y1 - self.y0
+    
+    @property
+    def rect(self) -> fitz.Rect:
+        return fitz.Rect(self.x0, self.y0, self.x1, self.y1)
+    
+    @property
+    def tuple(self) -> Tuple[float, float, float, float]:
+        return (self.x0, self.y0, self.x1, self.y1)
+
+@dataclass
+class CoordinateMapping:
+    """Handles coordinate transformations between different coordinate systems."""
+    
+    @staticmethod
+    def absolute_to_relative(bbox: Tuple[float, float, float, float], 
+                           page_bounds: VirtualPageBounds) -> Tuple[float, float, float, float]:
+        """Convert absolute coordinates to page-relative coordinates."""
+        x0, y0, x1, y1 = bbox
+        return (
+            x0 - page_bounds.x0,
+            y0 - page_bounds.y0,
+            x1 - page_bounds.x0,
+            y1 - page_bounds.y0
+        )
+    
+    @staticmethod
+    def relative_to_absolute(bbox: Tuple[float, float, float, float], 
+                           page_bounds: VirtualPageBounds) -> Tuple[float, float, float, float]:
+        """Convert page-relative coordinates to absolute coordinates."""
+        x0, y0, x1, y1 = bbox
+        return (
+            x0 + page_bounds.x0,
+            y0 + page_bounds.y0,
+            x1 + page_bounds.x0,
+            y1 + page_bounds.y0
+        )
+    
+    @staticmethod
+    def scale_for_display(bbox: Tuple[float, float, float, float], 
+                         scale_x: float, scale_y: float, 
+                         offset_x: float = 0, offset_y: float = 0) -> Tuple[float, float, float, float]:
+        """Scale coordinates for display rendering."""
+        x0, y0, x1, y1 = bbox
+        return (
+            (x0 - offset_x) * scale_x,
+            (y0 - offset_y) * scale_y,
+            (x1 - offset_x) * scale_x,
+            (y1 - offset_y) * scale_y
+        )
+
+class VirtualPageManager:
+    """Centralized manager for virtual page coordinate mapping and metadata."""
+    
+    def __init__(self, virtual_page_metadata: Optional[Dict] = None):
+        """Initialize with virtual page metadata."""
+        self.metadata = virtual_page_metadata or {}
+        self._page_bounds_cache: Dict[int, VirtualPageBounds] = {}
+        self._virtual_breaks: List[Tuple[float, int]] = []
+        self._setup_lookup_structures()
+    
+    def _setup_lookup_structures(self):
+        """Setup efficient lookup structures for virtual page mapping."""
+        if "page_breaks" in self.metadata:
+            self._virtual_breaks = sorted(self.metadata["page_breaks"])
+        
+        # Cache VirtualPageBounds objects
+        if "page_bounds" in self.metadata:
+            for page_num_str, bounds in self.metadata["page_bounds"].items():
+                page_num = int(page_num_str)
+                self._page_bounds_cache[page_num] = VirtualPageBounds(
+                    page_number=page_num,
+                    x0=bounds[0], y0=bounds[1], 
+                    x1=bounds[2], y1=bounds[3]
+                )
+    
+    def get_virtual_page_number(self, y_coordinate: float) -> int:
+        """Get virtual page number for a given y-coordinate using binary search."""
+        if not self._virtual_breaks:
+            return 0
+        
+        # Using bisect_right would be slightly more efficient, but this is clear.
+        left, right = 0, len(self._virtual_breaks) - 1
+        result_page = 0
+        
+        while left <= right:
+            mid = (left + right) // 2
+            y_start, page_num = self._virtual_breaks[mid]
+            
+            if y_coordinate >= y_start:
+                result_page = page_num
+                left = mid + 1
+            else:
+                right = mid - 1
+        
+        return result_page
+    
+    def get_page_bounds(self, page_number: int) -> Optional[VirtualPageBounds]:
+        """Get bounds for a virtual page."""
+        return self._page_bounds_cache.get(page_number)
+    
+    def get_all_page_bounds(self) -> Dict[int, VirtualPageBounds]:
+        """Get all virtual page bounds."""
+        return self._page_bounds_cache.copy()
+    
+    def bbox_to_virtual_page_coords(self, bbox: Tuple[float, float, float, float]) -> Tuple[VirtualPageBounds, Tuple[float, float, float, float]]:
+        """Convert a bbox to virtual page coordinates."""
+        page_number = self.get_virtual_page_number(bbox[1])
+        page_bounds = self.get_page_bounds(page_number)
+        
+        if not page_bounds:
+            raise ValueError(f"No bounds found for virtual page {page_number}")
+        
+        relative_coords = CoordinateMapping.absolute_to_relative(bbox, page_bounds)
+        return page_bounds, relative_coords
+    
+    def get_region_in_page(self, bbox: Tuple[float, float, float, float]) -> str:
+        """Determine if bbox is in header or footer region of its virtual page."""
+        page_bounds, relative_coords = self.bbox_to_virtual_page_coords(bbox)
+        
+        # Calculate midpoint relative to virtual page
+        mid_y_relative = (relative_coords[1] + relative_coords[3]) / 2.0
+        
+        return "header" if mid_y_relative < (page_bounds.height / 2) else "footer"
+    
+    def filter_bboxes_by_page_limit(self, bboxes: List[Tuple[float, float, float, float]], 
+                                   page_limit: int) -> List[Tuple[float, float, float, float]]:
+        """Filter bboxes to only include those within the page limit."""
+        return [bbox for bbox in bboxes if self.get_virtual_page_number(bbox[1]) <= page_limit]
+    
+    def get_document_bounds_with_limit(self, page_limit: int) -> Optional[fitz.Rect]:
+        """Get document bounds up to the specified page limit."""
+        if page_limit < 0:
+            return None
+        
+        max_x = max_y = 0
+        
+        for page_num, bounds in self._page_bounds_cache.items():
+            if page_num <= page_limit:
+                max_x = max(max_x, bounds.x1)
+                max_y = max(max_y, bounds.y1)
+        
+        return fitz.Rect(0, 0, max_x, max_y) if max_y > 0 else None
+    
+    def get_view_dimensions_with_limit(self, page_limit: int) -> Tuple[float, float]:
+        """Get view dimensions up to the specified page limit."""
+        bounds_rect = self.get_document_bounds_with_limit(page_limit)
+        return (bounds_rect.width, bounds_rect.height) if bounds_rect else (0, 0)
+    
+    @property
+    def page_count(self) -> int:
+        """Get total number of virtual pages."""
+        return self.metadata.get("page_count", 0)
+    
+    @property
+    def combined_doc_width(self) -> float:
+        """Get combined document width."""
+        return self.metadata.get("combined_doc_width", 0)
+    
+    @property
+    def combined_doc_height(self) -> float:
+        """Get combined document height."""
+        return self.metadata.get("combined_doc_height", 0)
+
+# --- REFACTORED PDFModel CLASS ---
+
 class PDFModel(BaseModel):
     """
     High‑level container that:
@@ -42,7 +224,7 @@ class PDFModel(BaseModel):
 
     # ----------------------- Core public attributes ------------------------ #
     path: Union[str, Path, bytes, bytearray]
-    s3_client: Optional[object] = None
+    s3_client: Optional[Any] = None
 
     # Populated automatically by the validator
     doc: Optional[fitz.Document] = None
@@ -51,6 +233,9 @@ class PDFModel(BaseModel):
     meta_version: Optional[str] = None
     meta_tag: Optional[str] = None
     virtual_page_metadata: Optional[dict] = None
+    
+    # NEW: Centralized virtual page manager
+    vpm: Optional[VirtualPageManager] = None
 
     class Config:
         arbitrary_types_allowed = True
@@ -77,6 +262,12 @@ class PDFModel(BaseModel):
         self.doc, self.virtual_page_metadata = self._combine_pages_and_get_metadata(
             original_doc
         )
+        
+        # NEW: Instantiate the VirtualPageManager with the generated metadata
+        if self.virtual_page_metadata:
+            self.vpm = VirtualPageManager(self.virtual_page_metadata)
+        else:
+            raise ValueError("Failed to generate virtual page metadata.")
 
         # 3. Construct virtual‑aware text index
         self.line_index = LineTextIndex.from_document(
@@ -101,6 +292,8 @@ class PDFModel(BaseModel):
         original_doc: fitz.Document,
     ) -> Tuple[fitz.Document, dict]:
         """Return a vertically‑stitched document + rich per‑page metadata."""
+        # This method's responsibility is to create the raw metadata.
+        # It remains largely unchanged as it is the source of truth for the VPM.
         combined = fitz.open()
         total_h = 0.0
         max_w = 0.0
@@ -129,37 +322,23 @@ class PDFModel(BaseModel):
             vpage_bounds[i] = tuple(tgt_rect)
             combined_page.show_pdf_page(tgt_rect, original_doc, i)
 
-            # detect real content area on original page
             local_content = fitz.Rect()
             for b in pg.get_text("blocks"):
                 local_content |= b[:4]
 
             if not local_content.is_empty:
-                # relative & absolute bboxes
                 content_rel = tuple(local_content)
                 margin_rel = Map.inverse_page_blocks(
-                    {
-                        i: {
-                            "bboxes": [content_rel],
-                            "page_width": pg.rect.width,
-                            "page_height": pg.rect.height,
-                        }
-                    }
+                    {i: {"bboxes": [content_rel], "page_width": pg.rect.width, "page_height": pg.rect.height}}
                 )
                 content_abs = Map.scale_y(content_rel, y_offset)
                 margin_abs = [Map.scale_y(b, y_offset) for b in margin_rel]
 
                 content_areas["content_bboxes"].append(content_abs)
                 content_areas["margin_bboxes"].extend(margin_abs)
-                content_areas["pages"][i] = {
-                    "content_bbox(rel)": content_rel,
-                    "margin_bboxes(rel)": margin_rel,
-                }
-            else:  # blank page
-                content_areas["pages"][i] = {
-                    "content_bbox(rel)": None,
-                    "margin_bboxes(rel)": [],
-                }
+                content_areas["pages"][i] = {"content_bbox(rel)": content_rel, "margin_bboxes(rel)": margin_rel}
+            else:
+                content_areas["pages"][i] = {"content_bbox(rel)": None, "margin_bboxes(rel)": []}
 
             y_offset += pg.rect.height
 
@@ -181,7 +360,8 @@ class PDFModel(BaseModel):
     @property
     def pages(self) -> int:
         """Total *virtual* pages."""
-        return self.virtual_page_metadata.get("page_count", 0) if self.virtual_page_metadata else 0
+        # UPDATED: Delegate to VirtualPageManager
+        return self.vpm.page_count if self.vpm else 0
 
     # --------------------------------------------------------------------- #
     #                         INTERNAL UTILITIES                            #
@@ -193,80 +373,69 @@ class PDFModel(BaseModel):
         highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
         crop_boxes: Optional[List] = None,
     ) -> Tuple[Optional[Union[List[tuple], Dict]], Optional[List]]:
-        """
-        Apply `page_limit` to crop‑ and highlight‑inputs in a single pass.
-        """
-        if not hasattr(self, "line_index") or not hasattr(self.line_index, "_get_virtual_page_num"):
+        """Apply `page_limit` to crop‑ and highlight‑inputs in a single pass."""
+        if not self.vpm:
             return highlight_boxes, crop_boxes
 
-        def within(bbox):
-            return self.line_index._get_virtual_page_num(bbox[1]) <= page_limit
-
-        filt_crop = [b for b in (crop_boxes or []) if within(b)] if crop_boxes else None
+        # UPDATED: Delegate filtering logic to VPM where possible
+        filt_crop = self.vpm.filter_bboxes_by_page_limit(crop_boxes, page_limit) if crop_boxes else None
 
         if isinstance(highlight_boxes, list):
-            filt_high = [b for b in highlight_boxes if within(b)]
+            filt_high = self.vpm.filter_bboxes_by_page_limit(highlight_boxes, page_limit)
         elif isinstance(highlight_boxes, dict):
+            # For dicts, we still need to iterate but can use VPM's checker
             filt_high = {
-                k: {**d, "boxes": [b for b in d.get("boxes", []) if within(b)]}
+                k: {**d, "boxes": [b for b in d.get("boxes", []) if self.vpm.get_virtual_page_number(b[1]) <= page_limit]}
                 for k, d in highlight_boxes.items()
             }
             filt_high = {k: v for k, v in filt_high.items() if v["boxes"]}
         else:
-            filt_high = highlight_boxes  # None or unsupported type untouched
+            filt_high = highlight_boxes
 
         return filt_high, filt_crop
 
     # --------------- Shared drawing / annotation helper ------------------ #
     def _annotate_base64_image(
-        self,
-        *,
-        base64_img: str,
-        page_number: Optional[int],
-        page_limit: Optional[int],
-        highlight_boxes: Optional[Union[List[tuple], Dict]],
-        grid: bool,
-        box_color: str,
-        box_width: int,
-        font_size: int,
+        self, *, base64_img: str, page_number: Optional[int], page_limit: Optional[int],
+        highlight_boxes: Optional[Union[List[tuple], Dict]], grid: bool, box_color: str,
+        box_width: int, font_size: int,
     ) -> str:
         """Overlay highlight boxes (and optionally a y‑grid) on a base64 image."""
-        if not highlight_boxes and not grid:
+        if (not highlight_boxes and not grid) or not _IPYTHON_AVAILABLE:
             return base64_img
 
         img_raw = base64.b64decode(base64_img)
         img = Image.open(BytesIO(img_raw)).convert("RGB")
         draw = ImageDraw.Draw(img)
 
-        # font
         try:
             font = ImageFont.truetype("Arial.ttf", font_size)
         except IOError:
             font = ImageFont.load_default()
 
-        # --------------------- coordinate transforms ---------------------- #
+        # UPDATED: All coordinate logic now uses the VirtualPageManager
         if page_number is not None:
-            x0, y0, x1, y1 = self.virtual_page_metadata["page_bounds"][page_number]
-            view_w, view_h = x1 - x0, y1 - y0
-            off_x, off_y = x0, y0
+            bounds = self.vpm.get_page_bounds(page_number)
+            if not bounds: return base64_img # Should not happen
+            view_w, view_h = bounds.width, bounds.height
+            off_x, off_y = bounds.x0, bounds.y0
         else:
             off_x = off_y = 0
             if page_limit is not None:
-                view_w, view_h = self._get_limited_view_dimensions(page_limit)
+                view_w, view_h = self.vpm.get_view_dimensions_with_limit(page_limit)
             else:
-                view_w = self.virtual_page_metadata["combined_doc_width"]
-                view_h = self.virtual_page_metadata["combined_doc_height"]
+                view_w = self.vpm.combined_doc_width
+                view_h = self.vpm.combined_doc_height
 
-        if view_w == 0 or view_h == 0:  # defensive
+        if view_w == 0 or view_h == 0:
             return base64_img
 
         sx = img.width / view_w
         sy = img.height / view_h
 
-        # ------------------------- Draw highlights ------------------------ #
         def draw_bbox(rect, clr):
-            rx0, ry0, rx1, ry1 = rect
-            px = [(rx0 - off_x) * sx, (ry0 - off_y) * sy, (rx1 - off_x) * sx, (ry1 - off_y) * sy]
+            # UPDATED: Use CoordinateMapping for scaling
+            px = CoordinateMapping.scale_for_display(rect, sx, sy, off_x, off_y)
             if px[2] > px[0] and px[3] > px[1]:
                 draw.rectangle(px, outline=clr, width=box_width)
             return px
@@ -276,16 +445,10 @@ class PDFModel(BaseModel):
                 col = data.get("color", box_color)
                 for b in data.get("boxes", []):
                     px_rect = draw_bbox(b, col)
-                    # label background & text
                     ax, ay = px_rect[0], px_rect[1]
                     txt_bbox = draw.textbbox((ax, ay - box_width), lbl, font=font, anchor="lb")
                     pad = 3
-                    bg = (
-                        txt_bbox[0] - pad,
-                        txt_bbox[1] - pad,
-                        txt_bbox[2] + pad,
-                        txt_bbox[3] + pad,
-                    )
+                    bg = (txt_bbox[0] - pad, txt_bbox[1] - pad, txt_bbox[2] + pad, txt_bbox[3] + pad)
                     draw.rectangle(bg, fill=col)
                     draw.text((ax, ay - box_width), lbl, font=font, fill="white", anchor="lb")
         elif isinstance(highlight_boxes, list):
@@ -311,46 +474,26 @@ class PDFModel(BaseModel):
                     draw.text((5, y_pix + 2), label, font=gfont, fill="black", anchor="lt")
                 y_pdf += 100
 
-        # re‑encode
         out = BytesIO()
         img.save(out, format="PNG")
         return base64.b64encode(out.getvalue()).decode("utf-8")
 
-    # Retain legacy name for backward compatibility  ------------------- #
-    def _add_highlight_boxes_to_base64(  # noqa: N802  (legacy API)
-        self,
-        base64_img: str,
-        highlight_boxes,
-        page_number,
-        page_limit,
-        box_color,
-        box_width,
-        font_size,
-        zoom,
-    ) -> str:  # pylint: disable=too-many-arguments
-        return self._annotate_base64_image(
-            base64_img=base64_img,
-            page_number=page_number,
-            page_limit=page_limit,
-            highlight_boxes=highlight_boxes,
-            grid=False,
-            box_color=box_color,
-            box_width=box_width,
-            font_size=font_size,
-        )
+    # Retain legacy name for backward compatibility
+    def _add_highlight_boxes_to_base64(self, *args, **kwargs) -> str:
+        kwargs.pop('zoom', None) # zoom not used in _annotate_base64_image
+        return self._annotate_base64_image(*args, grid=False, **kwargs)
 
     # --------------------------------------------------------------------- #
     #                              RENDERING                                #
     # --------------------------------------------------------------------- #
     def get_page(self, page_number: Optional[int] = None) -> fitz.Page:
         """Always returns *combined* page (index 0) after bound checking."""
-        if not self.doc:
-            raise RuntimeError("PDF document not loaded")
-        if page_number is not None and (page_number < 0 or page_number >= self.pages):
-            raise IndexError(f"Virtual page {page_number} out of range")
+        if not self.doc or not self.vpm:
+            raise RuntimeError("PDF document not loaded or VPM not initialized")
+        if page_number is not None and (page_number < 0 or page_number >= self.vpm.page_count):
+            raise IndexError(f"Virtual page {page_number} out of range (0-{self.vpm.page_count-1})")
         return self.doc[0]
 
-    # ------------ Core low‑level image generation (no annotations) -------- #
     def _render_combined_crops(
         self,
         page: fitz.Page,
@@ -384,46 +527,28 @@ class PDFModel(BaseModel):
         out = BytesIO()
         canvas.save(out, format="PNG")
         return base64.b64encode(out.getvalue()).decode("utf-8")
-
+    
+    # UPDATED: These two methods are now just simple delegations to the VPM.
     def _get_limited_view_dimensions(self, page_limit: int) -> Tuple[float, float]:
         """Dimensions (w,h) up to `page_limit`."""
-        w = h = 0.0
-        for pn, (x0, y0, x1, y1) in self.virtual_page_metadata.get("page_bounds", {}).items():
-            if pn <= page_limit:
-                w = max(w, x1)
-                h = max(h, y1)
-        return w, h
+        return self.vpm.get_view_dimensions_with_limit(page_limit) if self.vpm else (0, 0)
 
     def _get_document_bounds_with_limit(self, page_limit: int) -> Optional[fitz.Rect]:
         """Bounding rect (0,0,x_max,y_max) limited to given virtual page."""
-        w, h = self._get_limited_view_dimensions(page_limit)
-        return fitz.Rect(0, 0, w, h) if h > 0 else None
+        return self.vpm.get_document_bounds_with_limit(page_limit) if self.vpm else None
 
     # --------------------------- Public helpers --------------------------- #
     def get_page_base64(
-        self,
-        *,
-        page_number: Optional[int] = None,
-        zoom: float = 1.0,
-        crop_boxes: Optional[List] = None,
-        spacing: int = 10,
-        page_limit: Optional[int] = None,
-        highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
-        box_color: str = "red",
-        box_width: int = 2,
-        font_size: int = 12,
+        self, *, page_number: Optional[int] = None, zoom: float = 1.0,
+        crop_boxes: Optional[List] = None, spacing: int = 10, page_limit: Optional[int] = None,
+        highlight_boxes: Optional[Union[List[tuple], Dict]] = None, box_color: str = "red",
+        box_width: int = 2, font_size: int = 12,
     ) -> str:
-        """
-        Return rendered PNG (base64) for:
-        * a single virtual page,
-        * full combined doc,
-        * or combined custom crops.
-
-        Optional highlight‑box and page‑limit support.
-        """
+        """Return rendered PNG (base64) for a view, with optional annotations."""
+        if not self.vpm: raise RuntimeError("VPM not initialized")
+        
         page = self.get_page(page_number)
 
-        # filter inputs by page_limit first
         if page_limit is not None:
             highlight_boxes, crop_boxes = self._filter_by_page_limit(
                 page_limit, highlight_boxes=highlight_boxes, crop_boxes=crop_boxes
@@ -433,74 +558,62 @@ class PDFModel(BaseModel):
             b64 = self._render_combined_crops(page, crop_boxes, zoom, spacing)
         else:
             clip_rect = None
+            # UPDATED: Get clipping rectangle from the VPM.
             if page_number is not None:
-                clip_rect = fitz.Rect(*self.virtual_page_metadata["page_bounds"][page_number])
+                bounds = self.vpm.get_page_bounds(page_number)
+                clip_rect = bounds.rect if bounds else None
             elif page_limit is not None:
-                clip_rect = self._get_document_bounds_with_limit(page_limit)
+                clip_rect = self.vpm.get_document_bounds_with_limit(page_limit)
 
             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip_rect)
             b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
 
-        # overlay highlights if requested
-        b64 = self._annotate_base64_image(
-            base64_img=b64,
-            page_number=page_number,
-            page_limit=page_limit,
-            highlight_boxes=highlight_boxes,
-            grid=False,
-            box_color=box_color,
-            box_width=box_width,
-            font_size=font_size,
+        return self._annotate_base64_image(
+            base64_img=b64, page_number=page_number, page_limit=page_limit,
+            highlight_boxes=highlight_boxes, grid=False, box_color=box_color,
+            box_width=box_width, font_size=font_size,
         )
-        return b64
 
     # --------------------------------------------------------------------- #
     #                              DISPLAY                                  #
     # --------------------------------------------------------------------- #
-    def show(
-        self,
-        page_number: Optional[int] = None,
-        highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
-        crop_boxes: Optional[List] = None,
-        box_color: str = "red",
-        box_width: int = 2,
-        font_size: int = 12,
-        grid: bool = False,
-        zoom: float = 1.0,
-        spacing: int = 10,
-        page_limit: Optional[int] = None,
-    ):
+    def show(self, *args, **kwargs):
         """Render in‑notebook image with optional highlights/grid."""
+        # This high-level method remains largely the same, but now orchestrates
+        # the refactored, cleaner helper methods.
         if not _IPYTHON_AVAILABLE:
             print("IPython/Jupyter is required to display images.")
             return
 
-        # page‑limit filtering
+        page_number = kwargs.get("page_number")
+        page_limit = kwargs.get("page_limit")
+        highlight_boxes = kwargs.get("highlight_boxes")
+        crop_boxes = kwargs.get("crop_boxes")
+
         if page_limit is not None:
             highlight_boxes, crop_boxes = self._filter_by_page_limit(
                 page_limit, highlight_boxes=highlight_boxes, crop_boxes=crop_boxes
             )
+            kwargs["highlight_boxes"] = highlight_boxes
+            kwargs["crop_boxes"] = crop_boxes
 
-        # raw render (no annotations)
         b64 = self.get_page_base64(
             page_number=page_number,
             crop_boxes=crop_boxes,
-            spacing=spacing,
-            zoom=zoom,
+            spacing=kwargs.get("spacing", 10),
+            zoom=kwargs.get("zoom", 1.0),
             page_limit=page_limit,
-            highlight_boxes=None,  # handled later
+            highlight_boxes=None, # handled by _annotate_base64_image next
         )
 
-        # annotate (highlights + grid)
+        # Annotate separately for grid support
         b64 = self._annotate_base64_image(
             base64_img=b64,
-            page_number=page_number,
-            page_limit=page_limit,
-            highlight_boxes=highlight_boxes,
-            grid=grid,
-            box_color=box_color,
-            box_width=box_width,
-            font_size=font_size,
+            page_number=page_number, page_limit=page_limit,
+            highlight_boxes=highlight_boxes, grid=kwargs.get("grid", False),
+            box_color=kwargs.get("box_color", "red"),
+            box_width=kwargs.get("box_width", 2),
+            font_size=kwargs.get("font_size", 12),
         )
 
         display(Image.open(BytesIO(base64.b64decode(b64))).convert("RGB"))
@@ -510,10 +623,15 @@ class PDFModel(BaseModel):
     # --------------------------------------------------------------------- #
     def page_bbox_to_combined(self, page_number: int, page_relative_bbox: tuple) -> tuple:
         """Translate *page‑relative* bbox → *combined‑doc* coordinates."""
-        vp = self.virtual_page_metadata["page_bounds"][page_number]
-        off_x, off_y = vp[0], vp[1]
-        x0, y0, x1, y1 = page_relative_bbox
-        return (x0 + off_x, y0 + off_y, x1 + off_x, y1 + off_y)
+        # UPDATED: Delegate to CoordinateMapping
+        if not self.vpm:
+            raise RuntimeError("VPM not initialized")
+        
+        page_bounds = self.vpm.get_page_bounds(page_number)
+        if not page_bounds:
+            raise ValueError(f"Invalid page number: {page_number}")
+        
+        return CoordinateMapping.relative_to_absolute(page_relative_bbox, page_bounds)
 
     # --------------------------------------------------------------------- #
     #                               ITERATION                               #
@@ -521,6 +639,502 @@ class PDFModel(BaseModel):
     def __iter__(self):
         """Yield virtual page indices (0‑based)."""
         yield from range(self.pages)
+
+
+
+
+# class PDFModel(BaseModel):
+#     """
+#     High‑level container that:
+#     1. Loads an input PDF (local path / bytes / S3) via `FileReader`.
+#     2. Stitches all pages vertically into *one* tall page (“combined doc”).
+#     3. Builds a virtual‑page index (`LineTextIndex`) that understands page breaks.
+#     4. Offers rich helpers for rendering, cropping, and annotation.
+#     """
+
+#     # ----------------------- Core public attributes ------------------------ #
+#     path: Union[str, Path, bytes, bytearray]
+#     s3_client: Optional[object] = None
+#     vpm: Optional[VirtualPageManager] = None
+
+#     # Populated automatically by the validator
+#     doc: Optional[fitz.Document] = None
+#     name: Optional[str] = None
+#     line_index: Optional["LineTextIndex"] = None
+#     meta_version: Optional[str] = None
+#     meta_tag: Optional[str] = None
+#     virtual_page_metadata: Optional[dict] = None
+
+#     class Config:
+#         arbitrary_types_allowed = True
+
+#     # --------------------------------------------------------------------- #
+#     #                     INITIALISATION & METADATA                         #
+#     # --------------------------------------------------------------------- #
+#     @model_validator(mode="after")
+#     def _initialise_and_index(self) -> "PDFModel":
+#         """Load, stitch, index and harvest metadata in a *single* pass."""
+#         # 1. Load original multi‑page PDF via project reader
+#         try:
+#             original_doc = FileReader.pdf(self.path, s3_client=self.s3_client)
+#             if not isinstance(original_doc, fitz.Document):
+#                 raise TypeError(
+#                     f"FileReader returned {type(original_doc)}, expected fitz.Document"
+#                 )
+#             if isinstance(self.path, (str, Path)):
+#                 self.name = Path(self.path).stem
+#         except Exception as exc:
+#             raise ValueError(f"Could not load PDF: {exc}") from exc
+
+#         # 2. Build combined document (+ virtual‑page metadata)
+#         self.doc, self.virtual_page_metadata = self._combine_pages_and_get_metadata(
+#             original_doc
+#         )
+
+#         # 3. Construct virtual‑aware text index
+#         self.line_index = LineTextIndex.from_document(
+#             self.doc, virtual_page_metadata=self.virtual_page_metadata
+#         )
+
+#         # 4. Extract key PDF metadata
+#         trailer = self.doc.pdf_trailer()
+#         self.meta_version = trailer.get("Version") if isinstance(trailer, dict) else None
+#         md = self.doc.metadata
+#         wanted = ("creator", "title", "author", "subject", "keywords")
+#         self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
+
+#         original_doc.close()
+#         return self
+
+#     # --------------------------------------------------------------------- #
+#     #                       INTERNAL BUILD HELPERS                          #
+#     # --------------------------------------------------------------------- #
+#     @staticmethod
+#     def _combine_pages_and_get_metadata(
+#         original_doc: fitz.Document,
+#     ) -> Tuple[fitz.Document, dict]:
+#         """Return a vertically‑stitched document + rich per‑page metadata."""
+#         combined = fitz.open()
+#         total_h = 0.0
+#         max_w = 0.0
+
+#         page_dims: List[dict] = []
+#         for pg in original_doc:
+#             dims = {"width": pg.rect.width, "height": pg.rect.height}
+#             page_dims.append(dims)
+#             total_h += dims["height"]
+#             max_w = max(max_w, dims["width"])
+
+#         combined_page = combined.new_page(width=max_w, height=total_h)
+
+#         vpage_bounds: Dict[int, Tuple[float, float, float, float]] = {}
+#         vpage_breaks: List[Tuple[float, int]] = []
+#         content_areas = {
+#             "margin_bboxes": [],
+#             "content_bboxes": [],
+#             "pages": {},
+#         }
+
+#         y_offset = 0.0
+#         for i, pg in enumerate(original_doc):
+#             vpage_breaks.append((y_offset, i))
+#             tgt_rect = fitz.Rect(0, y_offset, pg.rect.width, y_offset + pg.rect.height)
+#             vpage_bounds[i] = tuple(tgt_rect)
+#             combined_page.show_pdf_page(tgt_rect, original_doc, i)
+
+#             # detect real content area on original page
+#             local_content = fitz.Rect()
+#             for b in pg.get_text("blocks"):
+#                 local_content |= b[:4]
+
+#             if not local_content.is_empty:
+#                 # relative & absolute bboxes
+#                 content_rel = tuple(local_content)
+#                 margin_rel = Map.inverse_page_blocks(
+#                     {
+#                         i: {
+#                             "bboxes": [content_rel],
+#                             "page_width": pg.rect.width,
+#                             "page_height": pg.rect.height,
+#                         }
+#                     }
+#                 )
+#                 content_abs = Map.scale_y(content_rel, y_offset)
+#                 margin_abs = [Map.scale_y(b, y_offset) for b in margin_rel]
+
+#                 content_areas["content_bboxes"].append(content_abs)
+#                 content_areas["margin_bboxes"].extend(margin_abs)
+#                 content_areas["pages"][i] = {
+#                     "content_bbox(rel)": content_rel,
+#                     "margin_bboxes(rel)": margin_rel,
+#                 }
+#             else:  # blank page
+#                 content_areas["pages"][i] = {
+#                     "content_bbox(rel)": None,
+#                     "margin_bboxes(rel)": [],
+#                 }
+
+#             y_offset += pg.rect.height
+
+#         vpage_breaks.sort()
+#         metadata = {
+#             "page_count": len(original_doc),
+#             "page_bounds": vpage_bounds,
+#             "page_breaks": vpage_breaks,
+#             "page_content_areas": content_areas,
+#             "combined_doc_width": max_w,
+#             "combined_doc_height": total_h,
+#             "original_page_dims": page_dims,
+#         }
+#         return combined, metadata
+
+#     # --------------------------------------------------------------------- #
+#     #                          PUBLIC PROPERTIES                            #
+#     # --------------------------------------------------------------------- #
+#     @property
+#     def pages(self) -> int:
+#         """Total *virtual* pages."""
+#         return self.virtual_page_metadata.get("page_count", 0) if self.virtual_page_metadata else 0
+
+#     # --------------------------------------------------------------------- #
+#     #                         INTERNAL UTILITIES                            #
+#     # --------------------------------------------------------------------- #
+#     def _filter_by_page_limit(
+#         self,
+#         page_limit: int,
+#         *,
+#         highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
+#         crop_boxes: Optional[List] = None,
+#     ) -> Tuple[Optional[Union[List[tuple], Dict]], Optional[List]]:
+#         """
+#         Apply `page_limit` to crop‑ and highlight‑inputs in a single pass.
+#         """
+#         if not hasattr(self, "line_index") or not hasattr(self.line_index, "_get_virtual_page_num"):
+#             return highlight_boxes, crop_boxes
+
+#         def within(bbox):
+#             return self.line_index._get_virtual_page_num(bbox[1]) <= page_limit
+
+#         filt_crop = [b for b in (crop_boxes or []) if within(b)] if crop_boxes else None
+
+#         if isinstance(highlight_boxes, list):
+#             filt_high = [b for b in highlight_boxes if within(b)]
+#         elif isinstance(highlight_boxes, dict):
+#             filt_high = {
+#                 k: {**d, "boxes": [b for b in d.get("boxes", []) if within(b)]}
+#                 for k, d in highlight_boxes.items()
+#             }
+#             filt_high = {k: v for k, v in filt_high.items() if v["boxes"]}
+#         else:
+#             filt_high = highlight_boxes  # None or unsupported type untouched
+
+#         return filt_high, filt_crop
+
+#     # --------------- Shared drawing / annotation helper ------------------ #
+#     def _annotate_base64_image(
+#         self,
+#         *,
+#         base64_img: str,
+#         page_number: Optional[int],
+#         page_limit: Optional[int],
+#         highlight_boxes: Optional[Union[List[tuple], Dict]],
+#         grid: bool,
+#         box_color: str,
+#         box_width: int,
+#         font_size: int,
+#     ) -> str:
+#         """Overlay highlight boxes (and optionally a y‑grid) on a base64 image."""
+#         if not highlight_boxes and not grid:
+#             return base64_img
+
+#         img_raw = base64.b64decode(base64_img)
+#         img = Image.open(BytesIO(img_raw)).convert("RGB")
+#         draw = ImageDraw.Draw(img)
+
+#         # font
+#         try:
+#             font = ImageFont.truetype("Arial.ttf", font_size)
+#         except IOError:
+#             font = ImageFont.load_default()
+
+#         # --------------------- coordinate transforms ---------------------- #
+#         if page_number is not None:
+#             x0, y0, x1, y1 = self.virtual_page_metadata["page_bounds"][page_number]
+#             view_w, view_h = x1 - x0, y1 - y0
+#             off_x, off_y = x0, y0
+#         else:
+#             off_x = off_y = 0
+#             if page_limit is not None:
+#                 view_w, view_h = self._get_limited_view_dimensions(page_limit)
+#             else:
+#                 view_w = self.virtual_page_metadata["combined_doc_width"]
+#                 view_h = self.virtual_page_metadata["combined_doc_height"]
+
+#         if view_w == 0 or view_h == 0:  # defensive
+#             return base64_img
+
+#         sx = img.width / view_w
+#         sy = img.height / view_h
+
+#         # ------------------------- Draw highlights ------------------------ #
+#         def draw_bbox(rect, clr):
+#             rx0, ry0, rx1, ry1 = rect
+#             px = [(rx0 - off_x) * sx, (ry0 - off_y) * sy, (rx1 - off_x) * sx, (ry1 - off_y) * sy]
+#             if px[2] > px[0] and px[3] > px[1]:
+#                 draw.rectangle(px, outline=clr, width=box_width)
+#             return px
+
+#         if isinstance(highlight_boxes, dict):
+#             for lbl, data in (highlight_boxes or {}).items():
+#                 col = data.get("color", box_color)
+#                 for b in data.get("boxes", []):
+#                     px_rect = draw_bbox(b, col)
+#                     # label background & text
+#                     ax, ay = px_rect[0], px_rect[1]
+#                     txt_bbox = draw.textbbox((ax, ay - box_width), lbl, font=font, anchor="lb")
+#                     pad = 3
+#                     bg = (
+#                         txt_bbox[0] - pad,
+#                         txt_bbox[1] - pad,
+#                         txt_bbox[2] + pad,
+#                         txt_bbox[3] + pad,
+#                     )
+#                     draw.rectangle(bg, fill=col)
+#                     draw.text((ax, ay - box_width), lbl, font=font, fill="white", anchor="lb")
+#         elif isinstance(highlight_boxes, list):
+#             for b in highlight_boxes:
+#                 draw_bbox(b, box_color)
+
+#         # --------------------------- Optional grid ------------------------ #
+#         if grid:
+#             try:
+#                 gfont = ImageFont.truetype("Arial.ttf", max(10, int(font_size * 0.8)))
+#             except IOError:
+#                 gfont = ImageFont.load_default()
+
+#             grid_color = (255, 20, 147, 150)  # semi‑transparent deep‑pink
+#             y_pdf = (int(off_y) // 100) * 100
+#             while y_pdf < off_y + view_h:
+#                 if y_pdf >= off_y:
+#                     y_pix = (y_pdf - off_y) * sy
+#                     draw.line([(0, y_pix), (img.width, y_pix)], fill=grid_color, width=1)
+#                     label = str(int(y_pdf))
+#                     tb = draw.textbbox((5, y_pix + 2), label, font=gfont, anchor="lt")
+#                     draw.rectangle(tb, fill="white")
+#                     draw.text((5, y_pix + 2), label, font=gfont, fill="black", anchor="lt")
+#                 y_pdf += 100
+
+#         # re‑encode
+#         out = BytesIO()
+#         img.save(out, format="PNG")
+#         return base64.b64encode(out.getvalue()).decode("utf-8")
+
+#     # Retain legacy name for backward compatibility  ------------------- #
+#     def _add_highlight_boxes_to_base64(  # noqa: N802  (legacy API)
+#         self,
+#         base64_img: str,
+#         highlight_boxes,
+#         page_number,
+#         page_limit,
+#         box_color,
+#         box_width,
+#         font_size,
+#         zoom,
+#     ) -> str:  # pylint: disable=too-many-arguments
+#         return self._annotate_base64_image(
+#             base64_img=base64_img,
+#             page_number=page_number,
+#             page_limit=page_limit,
+#             highlight_boxes=highlight_boxes,
+#             grid=False,
+#             box_color=box_color,
+#             box_width=box_width,
+#             font_size=font_size,
+#         )
+
+#     # --------------------------------------------------------------------- #
+#     #                              RENDERING                                #
+#     # --------------------------------------------------------------------- #
+#     def get_page(self, page_number: Optional[int] = None) -> fitz.Page:
+#         """Always returns *combined* page (index 0) after bound checking."""
+#         if not self.doc:
+#             raise RuntimeError("PDF document not loaded")
+#         if page_number is not None and (page_number < 0 or page_number >= self.pages):
+#             raise IndexError(f"Virtual page {page_number} out of range")
+#         return self.doc[0]
+
+#     # ------------ Core low‑level image generation (no annotations) -------- #
+#     def _render_combined_crops(
+#         self,
+#         page: fitz.Page,
+#         crop_boxes: List[Tuple[float, float, float, float]],
+#         zoom: float = 1.0,
+#         spacing: int = 10,
+#     ) -> str:
+#         """Render *multiple* crops then stack vertically with white spacer."""
+#         mat = fitz.Matrix(zoom, zoom)
+
+#         rendered: List[Image.Image] = []
+#         full_h = 0
+#         max_w = 0
+
+#         for box in crop_boxes:
+#             pix = page.get_pixmap(matrix=mat, clip=fitz.Rect(*box))
+#             img = Image.open(BytesIO(pix.tobytes("png")))
+#             rendered.append(img)
+#             full_h += img.height
+#             max_w = max(max_w, img.width)
+
+#         if len(rendered) > 1:
+#             full_h += spacing * (len(rendered) - 1)
+
+#         canvas = Image.new("RGB", (max_w, full_h), "white")
+#         y = 0
+#         for i, im in enumerate(rendered):
+#             canvas.paste(im, (0, y))
+#             y += im.height + (spacing if i < len(rendered) - 1 else 0)
+
+#         out = BytesIO()
+#         canvas.save(out, format="PNG")
+#         return base64.b64encode(out.getvalue()).decode("utf-8")
+
+#     def _get_limited_view_dimensions(self, page_limit: int) -> Tuple[float, float]:
+#         """Dimensions (w,h) up to `page_limit`."""
+#         w = h = 0.0
+#         for pn, (x0, y0, x1, y1) in self.virtual_page_metadata.get("page_bounds", {}).items():
+#             if pn <= page_limit:
+#                 w = max(w, x1)
+#                 h = max(h, y1)
+#         return w, h
+
+#     def _get_document_bounds_with_limit(self, page_limit: int) -> Optional[fitz.Rect]:
+#         """Bounding rect (0,0,x_max,y_max) limited to given virtual page."""
+#         w, h = self._get_limited_view_dimensions(page_limit)
+#         return fitz.Rect(0, 0, w, h) if h > 0 else None
+
+#     # --------------------------- Public helpers --------------------------- #
+#     def get_page_base64(
+#         self,
+#         *,
+#         page_number: Optional[int] = None,
+#         zoom: float = 1.0,
+#         crop_boxes: Optional[List] = None,
+#         spacing: int = 10,
+#         page_limit: Optional[int] = None,
+#         highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
+#         box_color: str = "red",
+#         box_width: int = 2,
+#         font_size: int = 12,
+#     ) -> str:
+#         """
+#         Return rendered PNG (base64) for:
+#         * a single virtual page,
+#         * full combined doc,
+#         * or combined custom crops.
+
+#         Optional highlight‑box and page‑limit support.
+#         """
+#         page = self.get_page(page_number)
+
+#         # filter inputs by page_limit first
+#         if page_limit is not None:
+#             highlight_boxes, crop_boxes = self._filter_by_page_limit(
+#                 page_limit, highlight_boxes=highlight_boxes, crop_boxes=crop_boxes
+#             )
+
+#         if crop_boxes:
+#             b64 = self._render_combined_crops(page, crop_boxes, zoom, spacing)
+#         else:
+#             clip_rect = None
+#             if page_number is not None:
+#                 clip_rect = fitz.Rect(*self.virtual_page_metadata["page_bounds"][page_number])
+#             elif page_limit is not None:
+#                 clip_rect = self._get_document_bounds_with_limit(page_limit)
+
+#             pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip_rect)
+#             b64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+
+#         # overlay highlights if requested
+#         b64 = self._annotate_base64_image(
+#             base64_img=b64,
+#             page_number=page_number,
+#             page_limit=page_limit,
+#             highlight_boxes=highlight_boxes,
+#             grid=False,
+#             box_color=box_color,
+#             box_width=box_width,
+#             font_size=font_size,
+#         )
+#         return b64
+
+#     # --------------------------------------------------------------------- #
+#     #                              DISPLAY                                  #
+#     # --------------------------------------------------------------------- #
+#     def show(
+#         self,
+#         page_number: Optional[int] = None,
+#         highlight_boxes: Optional[Union[List[tuple], Dict]] = None,
+#         crop_boxes: Optional[List] = None,
+#         box_color: str = "red",
+#         box_width: int = 2,
+#         font_size: int = 12,
+#         grid: bool = False,
+#         zoom: float = 1.0,
+#         spacing: int = 10,
+#         page_limit: Optional[int] = None,
+#     ):
+#         """Render in‑notebook image with optional highlights/grid."""
+#         if not _IPYTHON_AVAILABLE:
+#             print("IPython/Jupyter is required to display images.")
+#             return
+
+#         # page‑limit filtering
+#         if page_limit is not None:
+#             highlight_boxes, crop_boxes = self._filter_by_page_limit(
+#                 page_limit, highlight_boxes=highlight_boxes, crop_boxes=crop_boxes
+#             )
+
+#         # raw render (no annotations)
+#         b64 = self.get_page_base64(
+#             page_number=page_number,
+#             crop_boxes=crop_boxes,
+#             spacing=spacing,
+#             zoom=zoom,
+#             page_limit=page_limit,
+#             highlight_boxes=None,  # handled later
+#         )
+
+#         # annotate (highlights + grid)
+#         b64 = self._annotate_base64_image(
+#             base64_img=b64,
+#             page_number=page_number,
+#             page_limit=page_limit,
+#             highlight_boxes=highlight_boxes,
+#             grid=grid,
+#             box_color=box_color,
+#             box_width=box_width,
+#             font_size=font_size,
+#         )
+
+#         display(Image.open(BytesIO(base64.b64decode(b64))).convert("RGB"))
+
+#     # --------------------------------------------------------------------- #
+#     #                        GEOMETRY CONVERSION                            #
+#     # --------------------------------------------------------------------- #
+#     def page_bbox_to_combined(self, page_number: int, page_relative_bbox: tuple) -> tuple:
+#         """Translate *page‑relative* bbox → *combined‑doc* coordinates."""
+#         vp = self.virtual_page_metadata["page_bounds"][page_number]
+#         off_x, off_y = vp[0], vp[1]
+#         x0, y0, x1, y1 = page_relative_bbox
+#         return (x0 + off_x, y0 + off_y, x1 + off_x, y1 + off_y)
+
+#     # --------------------------------------------------------------------- #
+#     #                               ITERATION                               #
+#     # --------------------------------------------------------------------- #
+#     def __iter__(self):
+#         """Yield virtual page indices (0‑based)."""
+#         yield from range(self.pages)
+
 
 # class PDFModel(BaseModel):
 #     path: Union[str, Path, bytes, bytearray]
