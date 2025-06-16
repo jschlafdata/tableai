@@ -56,7 +56,7 @@ def _callable_payload(fn: Callable) -> Dict[str, Any]:
 class TraceReportGenerator:
     """
     Generates reports from TraceLog data using Jinja2 templates.
-    Supports both visual (notebook) and LLM-friendly report formats.
+    Supports both visual (notebook) and LLM-friendly report formats with Rich formatting.
     """
     
     def __init__(self):
@@ -312,7 +312,7 @@ PROCESS REFINEMENT OPTIONS:
             print(self.generate_visual_report(trace, result_obj))
             if show_images and result_obj:
                 print("\n📷 Images available (Jupyter required for display)")
-
+    
     def display_rich_report(self, 
                            trace, 
                            result_obj: Optional[Any] = None,
@@ -363,37 +363,35 @@ PROCESS REFINEMENT OPTIONS:
                             stats_content = "[bold green]✅ PROCESSING COMPLETE[/bold green]\n\n" + "\n".join(stats_lines)
                             console.print(Panel(stats_content, title="📊 RESULT STATISTICS", border_style="green"))
             
-            # === PART 2: DYNAMIC EXECUTION STEPS TABLE ===
+            # === PART 2: DYNAMIC EXECUTION STEPS - SECTIONED FORMAT ===
             console.print(Panel.fit("🔧 EXECUTION ANALYSIS", style="bold blue"))
             
-            table = Table(title="📋 STEP-BY-STEP EXECUTION", box=box.ROUNDED)
-            table.add_column("Step", style="cyan", no_wrap=True, width=6)
-            table.add_column("Name", style="magenta", width=40)
-            table.add_column("Function", style="green", width=25)
-            table.add_column("Output", style="red", no_wrap=True, width=8)
-            table.add_column("Description", style="blue", width=50)
-            
             for i, step in enumerate(trace.steps, 1):
-                # Dynamically extract and format step data
-                step_name = str(step.get('step_name', 'Unknown'))[:50]
+                # Extract step data dynamically
+                step_name = str(step.get('step_name', 'Unknown'))
                 function_name = str(step.get('function_name', 'Unknown'))
                 output_count = str(step.get('output_count', 0))
-                description = str(step.get('description', ''))[:80]
+                description = str(step.get('description', 'No description available'))
                 
-                if len(step_name) > 47:
-                    step_name = step_name[:47] + "..."
-                if len(description) > 77:
-                    description = description[:77] + "..."
+                # Create section header
+                section_header = f"Step {i}: {step_name}"
+                console.print(f"\n[bold cyan]{'─' * 8}[ {section_header} ]{'─' * (80 - len(section_header) - 12)}[/bold cyan]")
                 
-                table.add_row(
-                    str(i),
-                    step_name,
-                    f"{function_name}()",
-                    output_count,
-                    description
-                )
-            
-            console.print(table)
+                # Create info table for this step
+                info_table = Table(show_header=False, box=None, padding=(0, 2))
+                info_table.add_column("Label", style="dim", width=15)
+                info_table.add_column("Value", style="white")
+                
+                info_table.add_row("Function:", f"[green]{function_name}()[/green]")
+                info_table.add_row("Output Count:", f"[red]{output_count}[/red] items")
+                
+                console.print(info_table)
+                
+                # Description in its own section
+                if description and description.strip():
+                    console.print(f"\n[blue]{description}[/blue]")
+                
+                console.print()  # Add spacing between steps
             
             # === PART 3: DYNAMIC CONFIGURATION PARAMETERS ===
             if result_obj:
@@ -439,7 +437,53 @@ PROCESS REFINEMENT OPTIONS:
             # Fallback to regular display if Rich is not available
             console.print("[yellow]Rich library not available, falling back to basic display[/yellow]")
             self.display_visual_report(trace, result_obj, show_images, **display_kwargs)
-            
+    
+    def _extract_result_sections(self, result_obj: Any) -> Dict[str, Dict[str, Any]]:
+        """
+        Dynamically extract sections from result object based on field metadata.
+        Uses the same logic as the generic framework.
+        """
+        if hasattr(result_obj, '_extract_sections_from_fields'):
+            return result_obj._extract_sections_from_fields()
+        
+        # Fallback: basic categorization
+        sections = {
+            "overview": {},
+            "statistics": {},
+            "configuration": {},
+            "results": {},
+            "images": {},
+            "metadata": {}
+        }
+        
+        # Get field values
+        if hasattr(result_obj, 'model_dump'):
+            field_values = result_obj.model_dump()
+        else:
+            field_values = {attr: getattr(result_obj, attr) for attr in dir(result_obj) 
+                          if not attr.startswith('_') and not callable(getattr(result_obj, attr))}
+        
+        # Categorize fields dynamically
+        for field_name, value in field_values.items():
+            if field_name in ["pdf_model", "processing_timestamp"]:
+                continue
+                
+            if any(keyword in field_name.lower() for keyword in ["overview", "goal", "description"]):
+                sections["overview"][field_name] = value
+            elif any(keyword in field_name.lower() for keyword in ["count", "_analyzed", "statistics"]):
+                sections["statistics"][field_name] = value
+            elif any(keyword in field_name.lower() for keyword in ["param", "config", "setting"]):
+                sections["configuration"][field_name] = value
+            elif any(keyword in field_name.lower() for keyword in ["image", "base64"]):
+                sections["images"][field_name] = value
+            elif any(keyword in field_name.lower() for keyword in ["result", "output", "regions"]):
+                sections["results"][field_name] = value
+            else:
+                sections["metadata"][field_name] = value
+        
+        # Remove empty sections
+        return {k: v for k, v in sections.items() if v}
+    
     def _generate_fallback_report(self, trace, result_obj) -> str:
         """Fallback report generation using simple string formatting."""
         lines = []
