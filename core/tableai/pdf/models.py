@@ -23,7 +23,8 @@ from tableai.pdf.query import (
 )
 from tableai.pdf.coordinates import (
     Geometry,
-    CoordinateMapping
+    CoordinateMapping, 
+    VirtualPageBounds
 )
 
 from tableai.pdf.generic_models import (
@@ -40,32 +41,6 @@ try:
     _IPYTHON_AVAILABLE = True
 except ImportError:
     _IPYTHON_AVAILABLE = False
-
-
-@dataclass
-class VirtualPageBounds:
-    """Represents bounds for a virtual page."""
-    page_number: int
-    x0: float
-    y0: float
-    x1: float
-    y1: float
-    
-    @property
-    def width(self) -> float:
-        return self.x1 - self.x0
-    
-    @property
-    def height(self) -> float:
-        return self.y1 - self.y0
-    
-    @property
-    def rect(self) -> fitz.Rect:
-        return fitz.Rect(self.x0, self.y0, self.x1, self.y1)
-    
-    @property
-    def tuple(self) -> Tuple[float, float, float, float]:
-        return (self.x0, self.y0, self.x1, self.y1)
 
 
 class VirtualPageManager:

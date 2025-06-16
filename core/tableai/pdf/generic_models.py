@@ -6,169 +6,8 @@ from tableai.pdf.coordinates import (
     Geometry,
     CoordinateMapping
 )
-from typing import Generic, TypeVar, List, Dict, Any, Callable, Optional, Tuple, Union
+from typing import Generic, TypeVar, List, Dict, Any, Callable, Optional, Tuple, Union, Protocol
 from copy import deepcopy
-
-class GenericFunctionParams(BaseModel):
-    """
-    A base model for query parameters. All dynamically created parameter
-    models will inherit from this class. You can place truly universal
-    parameters here.
-    """
-    # Example of a truly universal parameter that all models will inherit
-    query_label: Optional[str] = Field(
-        default=None,
-        description="An optional label to attach to the query results for tracking."
-    )
-
-    @classmethod
-    def create_custom_model(
-        cls, 
-        model_name: str, 
-        custom_fields: Dict[str, Dict[str, Any]]
-    ) -> Type[BaseModel]:
-        """
-        Dynamically creates a new Pydantic model that inherits from this base class.
-
-        Args:
-            model_name (str): The name for the new Pydantic model class (e.g., "HorizontalWhitespaceParams").
-            custom_fields (Dict): A dictionary defining the custom fields for the new model.
-                The format is:
-                {
-                    "field_name": {
-                        "type": field_type (e.g., int, str),
-                        "default": default_value,
-                        "description": "A helpful description."
-                    },
-                    ...
-                }
-
-        Returns:
-            A new Pydantic model class, ready to be instantiated.
-        """
-        # Prepare a dictionary of field definitions in the format Pydantic's create_model expects
-        pydantic_fields: Dict[str, Any] = {}
-        
-        for field_name, config in custom_fields.items():
-            field_type = config.get("type", Any)
-            default_value = config.get("default", ...) # ... means the field is required if no default
-            description = config.get("description", None)
-            
-            # The value in the dict must be a tuple: (type, Field_instance)
-            pydantic_fields[field_name] = (
-                field_type,
-                Field(default=default_value, description=description)
-            )
-
-        # Use Pydantic's built-in function to create the new model class
-        # __base__=cls ensures it inherits from GenericQueryParams
-        new_model_class = create_model(
-            model_name,
-            __base__=cls,
-            **pydantic_fields
-        )
-        
-        return new_model_class
-
-
-# For horizontal_whitespace
-HorizontalWhitespaceParams = GenericFunctionParams.create_custom_model(
-    "HorizontalWhitespaceParams", {
-        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within." },
-        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace." }
-    }
-)
-
-# For group_vertically_touching_bboxes
-GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
-    "GroupTouchingBoxesParams", {
-        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'." }
-    }
-)
-
-# For paragraphs -> find_paragraph_blocks
-ParagraphsParams = GenericFunctionParams.create_custom_model(
-    "ParagraphsParams", {
-        'width_threshold': { 'type': float, 'default': 0.5, 'description': "Minimum relative width (0.0-1.0) for a line to be a paragraph seed." },
-        'x0_tol': { 'type': float, 'default': 2.0, 'description': "Tolerance for x0 alignment between paragraph lines." },
-        'font_size_tol': { 'type': float, 'default': 0.2, 'description': "Tolerance for font size similarity between lines." },
-        'y_gap_max': { 'type': float, 'default': 7.0, 'description': "Maximum vertical gap allowed between lines in a paragraph." }
-    }
-)
-
-class TextNormalizer:
-    """A callable object that normalizes text based on a set of regex patterns."""
-    def __init__(self, patterns: Dict[str, str], description: Optional[str] = None, output_key: Optional[str]='normalized_text'):
-        self.patterns = patterns
-        self.output_key = output_key or 'normalized_text'
-        self.description = description or f"Normalizes text using a set of regex substitutions. Used to build index items with the key=[{output_key}]."
-
-    def __call__(self, text: str) -> str:
-        """Makes the object callable to perform the normalization."""
-        t = text.lower().strip()
-        for pattern, replacement in self.patterns.items():
-            t = re.sub(pattern, replacement, t)
-        return t
-
-    def to_dict(self) -> dict:
-        """Creates a human-readable dictionary for logging."""
-        return {
-            "type": "TextNormalizer",
-            "patterns": self.patterns,
-            "description": self.description
-        }
-
-class WhitespaceGenerator:
-    """A callable object that computes full-width vertical whitespace."""
-    def __init__(self, min_gap: float = 5.0, description: Optional[str] = None, output_key: Optional[str]='full_width_v_whitespace'):
-        self.min_gap = min_gap
-        self.output_key = output_key or 'full_width_v_whitespace'
-        self.description = description or f"Detects vertical whitespace regions spanning the page width. Used to build index items with the key=[{output_key}]."
-
-    def __call__(self, by_page: Dict, page_metadata: Dict) -> List[Dict[str, Any]]:
-        """Makes the object callable to perform the calculation."""
-        # The entire logic from your old compute_full_width_v_whitespace function goes here.
-        # ... just use self.min_gap instead of the hardcoded value.
-        results = []
-        for page_num, rows in by_page.items():
-            spans = [r for r in rows if r.get("key") == "text" and r.get("bbox")]
-            spans = sorted(spans, key=lambda r: r["y0"])
-            page_width = page_metadata.get(page_num, {}).get("width", 612.0)  # fallback default A4 width
-    
-            for i in range(len(spans) - 1):
-                a, b = spans[i], spans[i + 1]
-                gap = b["y0"] - a["y1"]
-                if gap >= self.min_gap:
-                    y0 = a["y1"]
-                    y1 = b["y0"]
-                    results.append({
-                        "page": page_num,
-                        "block": -1,
-                        "line": -1,
-                        "span": -1,
-                        "index": -1,
-                        "key": "full_width_v_whitespace",
-                        "value": "",
-                        "path": None,
-                        "gap": gap,
-                        "bbox": (0.0, y0, page_width, y1),
-                        "x0": 0.0,
-                        "y0": y0,
-                        "x1": page_width,
-                        "y1": y1,
-                        "x_span": page_width,
-                        "y_span": y1 - y0,
-                        "meta": {"gap_class": "large" if gap > 20 else "small"}
-                    })
-        return results
-
-    def to_dict(self) -> dict:
-        """Creates a human-readable dictionary for logging."""
-        return {
-            "type": "WhitespaceGenerator",
-            "min_gap": self.min_gap,
-            "description": self.description
-        }
 
 T = TypeVar('T')
 
@@ -186,36 +25,353 @@ class BaseAccessor(Generic[T]):
         """Applies a function to each item."""
         return [func(item) for item in self._data]
 
-class GroupOps:
-    """A collection of reusable static methods for processing GroupbyQueryResult objects."""
-    
-    @staticmethod
-    def merge_bboxes(group: 'GroupbyQueryResult', key: str = 'group_bboxes') -> Optional[Tuple[float, ...]]:
-        """
-        Takes a group and merges a specified list of bboxes within it.
+# Type definitions for better type safety
+BBox = Tuple[float, float, float, float]
+BBoxList = List[BBox]
+GroupFunction = Callable[['GroupbyQueryResult'], Any]
 
-        Args:
-            group: The GroupbyQueryResult object to process.
-            key: The name of the attribute on the group object that holds the
-                 list of bboxes (e.g., 'group_bboxes', 'group_bboxes_rel').
-                 Defaults to 'group_bboxes'.
-        
-        Returns:
-            A single merged bounding box tuple, or None if the key doesn't
-            exist or the list is empty.
-        """
-        # Safely get the list of bboxes using the specified key
-        bboxes_to_merge = getattr(group, key, None)
-        
+class HasBBoxField(Protocol):
+    """Protocol for objects that have bbox fields."""
+    def __getattribute__(self, name: str) -> Any: ...
+
+# Field accessor functions that return aggregation functions with type safety
+def merge_all_bboxes(field_name: str) -> GroupFunction:
+    """
+    Returns a function that merges all bboxes from the specified field.
+    
+    Args:
+        field_name: Name of the field containing the list of bboxes
+                   (e.g., 'group_bboxes', 'group_bboxes_rel')
+    
+    Returns:
+        Function that takes a group and returns merged bbox or None
+    """
+    def _merge_bboxes(group: 'GroupbyQueryResult') -> Optional[BBox]:
+        bboxes_to_merge: Optional[BBoxList] = getattr(group, field_name, None)
         if not bboxes_to_merge:
             return None
-            
         return Geometry.merge_all_boxes(bboxes_to_merge)
+    
+    return _merge_bboxes
 
-    @staticmethod
-    def concat_text(group: 'GroupbyQueryResult', delimiter: str = '|') -> str:
-        """Takes a group and returns its concatenated text string."""
-        return delimiter.join(group.group_text)
+def merge_overlapping_bboxes(field_name: str) -> GroupFunction:
+    """
+    Returns a function that merges overlapping bboxes from the specified field.
+    
+    Args:
+        field_name: Name of the field containing the list of bboxes
+    
+    Returns:
+        Function that takes a group and returns list of merged bboxes
+    """
+    def _merge_overlapping(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        return Geometry.merge_overlapping_boxes(bboxes)
+    
+    return _merge_overlapping
+
+def concat_text(field_name: str, delimiter: str = '|') -> GroupFunction:
+    """
+    Returns a function that concatenates text from the specified field.
+    
+    Args:
+        field_name: Name of the field containing the list of text strings
+        delimiter: String to join the text with
+    
+    Returns:
+        Function that takes a group and returns concatenated text
+    """
+    def _concat_text(group: 'GroupbyQueryResult') -> str:
+        text_list: List[str] = getattr(group, field_name, [])
+        return delimiter.join(text_list)
+    
+    return _concat_text
+
+def get_field(field_name: str) -> GroupFunction:
+    """
+    Returns a function that extracts a specific field from the group.
+    
+    Args:
+        field_name: Name of the field to extract
+    
+    Returns:
+        Function that takes a group and returns the field value
+    """
+    def _get_field(group: 'GroupbyQueryResult') -> Any:
+        return getattr(group, field_name, None)
+    
+    return _get_field
+
+def count_items(field_name: str) -> GroupFunction:
+    """
+    Returns a function that counts items in a list field.
+    
+    Args:
+        field_name: Name of the field containing a list
+    
+    Returns:
+        Function that takes a group and returns the count
+    """
+    def _count_items(group: 'GroupbyQueryResult') -> int:
+        items = getattr(group, field_name, [])
+        return len(items) if items else 0
+    
+    return _count_items
+
+def check_overlap_with_bbox(field_name: str, target_bbox: BBox) -> GroupFunction:
+    """
+    Returns a function that checks if any bbox in the field overlaps with the target bbox.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        target_bbox: The bbox to check overlap against
+    
+    Returns:
+        Function that takes a group and returns True if any bbox overlaps
+    """
+    def _check_overlap(group: 'GroupbyQueryResult') -> bool:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return False
+        
+        for bbox in bboxes:
+            if Geometry.bbox_overlaps(bbox, target_bbox):
+                return True
+        return False
+    
+    return _check_overlap
+
+def check_x_overlap_with_bbox(field_name: str, target_bbox: BBox) -> GroupFunction:
+    """
+    Returns a function that checks if any bbox in the field has x-overlap with the target bbox.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        target_bbox: The bbox to check x-overlap against
+    
+    Returns:
+        Function that takes a group and returns True if any bbox has x-overlap
+    """
+    def _check_x_overlap(group: 'GroupbyQueryResult') -> bool:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return False
+        
+        for bbox in bboxes:
+            if Geometry.is_x_overlapping(bbox, target_bbox):
+                return True
+        return False
+    
+    return _check_x_overlap
+
+def is_fully_contained_in(field_name: str, outer_bbox: BBox, index: int = 0) -> GroupFunction:
+    """
+    Returns a function that checks if a bbox is fully contained within the outer bbox.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        outer_bbox: The containing bbox
+        index: Index of the bbox to check (default: 0)
+    
+    Returns:
+        Function that takes a group and returns True if bbox is fully contained
+    """
+    def _is_contained(group: 'GroupbyQueryResult') -> bool:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes or len(bboxes) <= index:
+            return False
+        
+        return Geometry.is_fully_contained(bboxes[index], outer_bbox)
+    
+    return _is_contained
+
+def percent_contained_in(field_name: str, outer_bbox: BBox, index: int = 0) -> GroupFunction:
+    """
+    Returns a function that calculates what percentage of a bbox is contained in the outer bbox.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        outer_bbox: The containing bbox
+        index: Index of the bbox to check (default: 0)
+    
+    Returns:
+        Function that takes a group and returns percentage contained (0.0 to 1.0)
+    """
+    def _percent_contained(group: 'GroupbyQueryResult') -> float:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes or len(bboxes) <= index:
+            return 0.0
+        
+        return Geometry.percent_contained(bboxes[index], outer_bbox)
+    
+    return _percent_contained
+
+def scale_bboxes_y(field_name: str, y_offset: float) -> GroupFunction:
+    """
+    Returns a function that scales all bboxes in a field by a y-offset.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        y_offset: Offset to apply to y coordinates
+    
+    Returns:
+        Function that takes a group and returns scaled bboxes
+    """
+    def _scale_y(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return [Geometry.scale_y(bbox, y_offset) for bbox in bboxes]
+    
+    return _scale_y
+
+def transform_bboxes(field_name: str, transform_func: Callable[[BBox], BBox]) -> GroupFunction:
+    """
+    Returns a function that applies a custom transformation to all bboxes in a field.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        transform_func: Function that takes a bbox and returns a transformed bbox
+    
+    Returns:
+        Function that takes a group and returns transformed bboxes
+    """
+    def _transform(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return [transform_func(bbox) for bbox in bboxes]
+    
+    return _transform
+
+
+def expand_bboxes(field_name: str, margin: float) -> GroupFunction:
+    """
+    Returns a function that expands all bboxes in a field by a margin.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        margin: Margin to expand in all directions
+    
+    Returns:
+        Function that takes a group and returns expanded bboxes
+    """
+    def _expand(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return [Geometry.expand_bbox(bbox, margin) for bbox in bboxes]
+    
+    return _expand
+
+def contract_bboxes(field_name: str, margin: float) -> GroupFunction:
+    """
+    Returns a function that contracts all bboxes in a field by a margin.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        margin: Margin to contract in all directions
+    
+    Returns:
+        Function that takes a group and returns contracted bboxes
+    """
+    def _contract(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return [Geometry.contract_bbox(bbox, margin) for bbox in bboxes]
+    
+    return _contract
+
+def bbox_centers(field_name: str) -> GroupFunction:
+    """
+    Returns a function that calculates center points for all bboxes in a field.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+    
+    Returns:
+        Function that takes a group and returns list of center points
+    """
+    def _centers(group: 'GroupbyQueryResult') -> List[Tuple[float, float]]:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return [Geometry.bbox_center(bbox) for bbox in bboxes]
+    
+    return _centers
+
+
+def sort_bboxes(field_name: str, sort_by: str = 'top_left') -> GroupFunction:
+    """
+    Returns a function that sorts bboxes by position or size.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        sort_by: Sorting method - 'top_left', 'center', 'area', 'width', 'height'
+    
+    Returns:
+        Function that takes a group and returns sorted bboxes
+    """
+    def _sort(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        if not bboxes:
+            return []
+        
+        return Geometry.sort_bboxes_by_position(bboxes, sort_by)
+    
+    return _sort
+
+def absolute_to_relative_bboxes(field_name: str, page_bounds_field: str) -> GroupFunction:
+    """
+    Returns a function that converts absolute bboxes to page-relative coordinates.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        page_bounds_field: Name of the field containing page bounds object
+    
+    Returns:
+        Function that takes a group and returns relative bboxes
+    """
+    def _to_relative(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        page_bounds = getattr(group, page_bounds_field, None)
+        
+        if not bboxes or not page_bounds:
+            return []
+        
+        return [CoordinateMapping.absolute_to_relative(bbox, page_bounds) for bbox in bboxes]
+    
+    return _to_relative
+
+def relative_to_absolute_bboxes(field_name: str, page_bounds_field: str) -> GroupFunction:
+    """
+    Returns a function that converts relative bboxes to absolute coordinates.
+    
+    Args:
+        field_name: Name of the field containing bboxes
+        page_bounds_field: Name of the field containing page bounds object
+    
+    Returns:
+        Function that takes a group and returns absolute bboxes
+    """
+    def _to_absolute(group: 'GroupbyQueryResult') -> BBoxList:
+        bboxes: Optional[BBoxList] = getattr(group, field_name, None)
+        page_bounds = getattr(group, page_bounds_field, None)
+        
+        if not bboxes or not page_bounds:
+            return []
+        
+        return [CoordinateMapping.relative_to_absolute(bbox, page_bounds) for bbox in bboxes]
+    
+    return _to_absolute
 
 
 class GroupChain:
@@ -435,14 +591,167 @@ class GroupAccessor(BaseAccessor['GroupbyQueryResult']):
             
         return results
 
-    # --- Legacy methods kept for backward compatibility ---
-    def merge_all_bboxes(self) -> list[tuple]:
-        """Merges the bboxes of each group into a single bbox per group."""
-        return self.apply(GroupOps.merge_bboxes)
+class GenericFunctionParams(BaseModel):
+    """
+    A base model for query parameters. All dynamically created parameter
+    models will inherit from this class. You can place truly universal
+    parameters here.
+    """
+    # Example of a truly universal parameter that all models will inherit
+    query_label: Optional[str] = Field(
+        default=None,
+        description="An optional label to attach to the query results for tracking."
+    )
+
+    @classmethod
+    def create_custom_model(
+        cls, 
+        model_name: str, 
+        custom_fields: Dict[str, Dict[str, Any]]
+    ) -> Type[BaseModel]:
+        """
+        Dynamically creates a new Pydantic model that inherits from this base class.
+
+        Args:
+            model_name (str): The name for the new Pydantic model class (e.g., "HorizontalWhitespaceParams").
+            custom_fields (Dict): A dictionary defining the custom fields for the new model.
+                The format is:
+                {
+                    "field_name": {
+                        "type": field_type (e.g., int, str),
+                        "default": default_value,
+                        "description": "A helpful description."
+                    },
+                    ...
+                }
+
+        Returns:
+            A new Pydantic model class, ready to be instantiated.
+        """
+        # Prepare a dictionary of field definitions in the format Pydantic's create_model expects
+        pydantic_fields: Dict[str, Any] = {}
         
-    def get_text(self) -> list[list[str]]:
-        """Returns a list of the text lists for each group."""
-        return self.apply(lambda item: item.group_text)
+        for field_name, config in custom_fields.items():
+            field_type = config.get("type", Any)
+            default_value = config.get("default", ...) # ... means the field is required if no default
+            description = config.get("description", None)
+            
+            # The value in the dict must be a tuple: (type, Field_instance)
+            pydantic_fields[field_name] = (
+                field_type,
+                Field(default=default_value, description=description)
+            )
+
+        # Use Pydantic's built-in function to create the new model class
+        # __base__=cls ensures it inherits from GenericQueryParams
+        new_model_class = create_model(
+            model_name,
+            __base__=cls,
+            **pydantic_fields
+        )
+        
+        return new_model_class
+
+
+# For horizontal_whitespace
+HorizontalWhitespaceParams = GenericFunctionParams.create_custom_model(
+    "HorizontalWhitespaceParams", {
+        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within." },
+        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace." }
+    }
+)
+
+# For group_vertically_touching_bboxes
+GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
+    "GroupTouchingBoxesParams", {
+        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'." }
+    }
+)
+
+# For paragraphs -> find_paragraph_blocks
+ParagraphsParams = GenericFunctionParams.create_custom_model(
+    "ParagraphsParams", {
+        'width_threshold': { 'type': float, 'default': 0.5, 'description': "Minimum relative width (0.0-1.0) for a line to be a paragraph seed." },
+        'x0_tol': { 'type': float, 'default': 2.0, 'description': "Tolerance for x0 alignment between paragraph lines." },
+        'font_size_tol': { 'type': float, 'default': 0.2, 'description': "Tolerance for font size similarity between lines." },
+        'y_gap_max': { 'type': float, 'default': 7.0, 'description': "Maximum vertical gap allowed between lines in a paragraph." }
+    }
+)
+
+class TextNormalizer:
+    """A callable object that normalizes text based on a set of regex patterns."""
+    def __init__(self, patterns: Dict[str, str], description: Optional[str] = None, output_key: Optional[str]='normalized_text'):
+        self.patterns = patterns
+        self.output_key = output_key or 'normalized_text'
+        self.description = description or f"Normalizes text using a set of regex substitutions. Used to build index items with the key=[{output_key}]."
+
+    def __call__(self, text: str) -> str:
+        """Makes the object callable to perform the normalization."""
+        t = text.lower().strip()
+        for pattern, replacement in self.patterns.items():
+            t = re.sub(pattern, replacement, t)
+        return t
+
+    def to_dict(self) -> dict:
+        """Creates a human-readable dictionary for logging."""
+        return {
+            "type": "TextNormalizer",
+            "patterns": self.patterns,
+            "description": self.description
+        }
+
+class WhitespaceGenerator:
+    """A callable object that computes full-width vertical whitespace."""
+    def __init__(self, min_gap: float = 5.0, description: Optional[str] = None, output_key: Optional[str]='full_width_v_whitespace'):
+        self.min_gap = min_gap
+        self.output_key = output_key or 'full_width_v_whitespace'
+        self.description = description or f"Detects vertical whitespace regions spanning the page width. Used to build index items with the key=[{output_key}]."
+
+    def __call__(self, by_page: Dict, page_metadata: Dict) -> List[Dict[str, Any]]:
+        """Makes the object callable to perform the calculation."""
+        # The entire logic from your old compute_full_width_v_whitespace function goes here.
+        # ... just use self.min_gap instead of the hardcoded value.
+        results = []
+        for page_num, rows in by_page.items():
+            spans = [r for r in rows if r.get("key") == "text" and r.get("bbox")]
+            spans = sorted(spans, key=lambda r: r["y0"])
+            page_width = page_metadata.get(page_num, {}).get("width", 612.0)  # fallback default A4 width
+    
+            for i in range(len(spans) - 1):
+                a, b = spans[i], spans[i + 1]
+                gap = b["y0"] - a["y1"]
+                if gap >= self.min_gap:
+                    y0 = a["y1"]
+                    y1 = b["y0"]
+                    results.append({
+                        "page": page_num,
+                        "block": -1,
+                        "line": -1,
+                        "span": -1,
+                        "index": -1,
+                        "key": "full_width_v_whitespace",
+                        "value": "",
+                        "path": None,
+                        "gap": gap,
+                        "bbox": (0.0, y0, page_width, y1),
+                        "x0": 0.0,
+                        "y0": y0,
+                        "x1": page_width,
+                        "y1": y1,
+                        "x_span": page_width,
+                        "y_span": y1 - y0,
+                        "meta": {"gap_class": "large" if gap > 20 else "small"}
+                    })
+        return results
+
+    def to_dict(self) -> dict:
+        """Creates a human-readable dictionary for logging."""
+        return {
+            "type": "WhitespaceGenerator",
+            "min_gap": self.min_gap,
+            "description": self.description
+        }
+
 
 # --- Accessor for DefaultQueryResult ---
 class DefaultAccessor(BaseAccessor['DefaultQueryResult']):
