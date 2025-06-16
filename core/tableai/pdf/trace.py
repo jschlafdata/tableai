@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import inspect
 import textwrap
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Union
+from jinja2 import Environment, BaseLoader, Template
+import json
 
 try:
     # Optional import – only needed when you pass Pydantic models
@@ -50,6 +52,339 @@ def _callable_payload(fn: Callable) -> Dict[str, Any]:
         "is_lambda": fn.__name__ == "<lambda>",
     }
 
+class TraceReportGenerator:
+    """
+    Generates reports from TraceLog data using Jinja2 templates.
+    Supports both visual (notebook) and LLM-friendly report formats.
+    """
+    
+    def __init__(self):
+        """Initialize with Jinja2 environment and templates."""
+        self.jinja_env = Environment(loader=BaseLoader())
+        self._setup_templates()
+        self._setup_filters()
+    
+    def _setup_filters(self):
+        """Add custom Jinja2 filters for report generation."""
+        
+        def format_json(value, indent=2):
+            """Format value as pretty JSON."""
+            try:
+                return json.dumps(value, indent=indent, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return str(value)
+        
+        def format_datetime(value, format_str='%Y-%m-%d %H:%M:%S'):
+            """Format datetime object."""
+            if isinstance(value, datetime):
+                return value.strftime(format_str)
+            return str(value)
+        
+        def truncate_string(value, length=100):
+            """Truncate string with ellipsis."""
+            s = str(value)
+            return s[:length] + "..." if len(s) > length else s
+        
+        def format_outline(value, max_str_len=100):
+            """Format nested dict/list as outline."""
+            return self._format_json_outline(value, max_str_len=max_str_len)
+        
+        def get_field_sections(result_obj):
+            """Extract field sections from result object."""
+            if hasattr(result_obj, '_extract_sections_from_fields'):
+                return result_obj._extract_sections_from_fields()
+            return {}
+        
+        # Register filters
+        self.jinja_env.filters['json'] = format_json
+        self.jinja_env.filters['datetime'] = format_datetime
+        self.jinja_env.filters['truncate'] = truncate_string
+        self.jinja_env.filters['outline'] = format_outline
+        self.jinja_env.filters['field_sections'] = get_field_sections
+    
+    def _setup_templates(self):
+        """Define Jinja2 templates for different report formats."""
+        
+        # Template for visual notebook reports
+        self.visual_template = self.jinja_env.from_string("""
+{%- if result_obj -%}
+# 🎯 {{ result_obj.__class__.__name__ }} Summary
+
+## 📋 Overview
+{{ result_obj.overview }}
+
+## 🎯 Goal  
+{{ result_obj.goal }}
+
+## 📊 Result Statistics
+- **Processing completed:** {{ result_obj.processing_timestamp | datetime }}
+- **Noise regions detected:** {{ result_obj.noise_regions_count }}
+- **Content regions identified:** {{ result_obj.content_regions_count }}  
+- **Pages analyzed:** {{ result_obj.pages_analyzed }}
+{%- if result_obj.image_config %}
+- **Image settings:** Zoom={{ result_obj.image_config.zoom }}x, Colors=Noise={{ result_obj.image_config.noise_color }}, Content={{ result_obj.image_config.inverse_color }}
+{%- endif %}
+
+{%- endif %}
+
+## 🔧 Execution Steps
+
+| Step | Name | Function | Output | Description |
+|------|------|----------|--------|-------------|
+{%- for step in trace_steps %}
+| {{ loop.index }} | {{ step.step_name | truncate(40) }} | {{ step.function_name }}() | {{ step.output_count }} | {{ step.description | truncate(60) }} |
+{%- endfor %}
+
+{%- if global_functions %}
+
+## 🛠️ Global Functions Used
+
+{%- for func_name, func_info in global_functions.items() %}
+
+### {{ func_name }}()
+**Description:** {{ func_info.description }}
+
+{%- if func_info.sample_params %}
+**Parameters:**
+```json
+{{ func_info.sample_params | json }}
+```
+{%- endif %}
+{%- endfor %}
+{%- endif %}
+
+{%- if result_obj and result_obj.process_optional_parameters %}
+
+## ⚙️ Optional Parameters for Refinement
+{{ result_obj.process_optional_parameters }}
+{%- endif %}
+        """)
+        
+        # Template for LLM-friendly reports
+        self.llm_template = self.jinja_env.from_string("""
+EXECUTION TRACE ANALYSIS
+{{ "=" * 50 }}
+
+{%- if result_obj %}
+
+RESULT SUMMARY:
+- Result Type: {{ result_obj.__class__.__name__ }}
+- Processing Time: {{ result_obj.processing_timestamp | datetime }}
+- Noise regions detected: {{ result_obj.noise_regions_count }}
+- Content regions identified: {{ result_obj.content_regions_count }}
+- Pages analyzed: {{ result_obj.pages_analyzed }}
+- Images available: {{ "Yes" if result_obj.result_image else "No" }}
+
+OVERVIEW:
+{{ result_obj.overview }}
+
+GOAL:
+{{ result_obj.goal }}
+
+{%- endif %}
+
+EXECUTION STEPS ({{ trace_steps | length }} total):
+{{ "-" * 50 }}
+
+{%- for step in trace_steps %}
+
+Step {{ loop.index }}: {{ step.step_name }}
+Function: {{ step.function_name }}()
+Output Count: {{ step.output_count }}
+Description: {{ step.description }}
+
+{%- if step.parameters and include_parameters %}
+Parameters:
+{{ step.parameters | outline }}
+{%- endif %}
+
+{%- endfor %}
+
+{%- if global_functions and include_global_functions %}
+
+GLOBAL FUNCTIONS ANALYSIS:
+{{ "-" * 50 }}
+
+{%- for func_name, func_info in global_functions.items() %}
+
+{{ func_name }}():
+Description: {{ func_info.description }}
+{%- if func_info.sample_params %}
+Sample Parameters:
+{{ func_info.sample_params | outline }}
+{%- endif %}
+
+{%- endfor %}
+{%- endif %}
+
+{%- if result_obj and result_obj.process_optional_parameters %}
+
+PROCESS REFINEMENT OPTIONS:
+{{ "-" * 50 }}
+{{ result_obj.process_optional_parameters }}
+{%- endif %}
+        """)
+    
+    def generate_visual_report(self, 
+                             trace: 'TraceLog', 
+                             result_obj: Optional[Any] = None,
+                             include_global_functions: bool = True) -> str:
+        """
+        Generate a visual report for notebook display.
+        
+        Args:
+            trace: TraceLog object with execution steps
+            result_obj: Result object (e.g., NoiseDetectionResult)
+            include_global_functions: Whether to include global functions analysis
+        
+        Returns:
+            Formatted markdown report string
+        """
+        context = self._build_template_context(
+            trace, result_obj, include_global_functions
+        )
+        
+        return self.visual_template.render(**context)
+    
+    def generate_llm_report(self, 
+                           trace: 'TraceLog', 
+                           result_obj: Optional[Any] = None,
+                           include_global_functions: bool = True,
+                           include_parameters: bool = True,
+                           max_str_len: int = 100) -> str:
+        """
+        Generate an LLM-friendly report.
+        
+        Args:
+            trace: TraceLog object with execution steps
+            result_obj: Result object (e.g., NoiseDetectionResult)
+            include_global_functions: Whether to include global functions analysis
+            include_parameters: Whether to include detailed parameters
+            max_str_len: Maximum string length for truncation
+        
+        Returns:
+            Plain text report optimized for LLM consumption
+        """
+        context = self._build_template_context(
+            trace, result_obj, include_global_functions
+        )
+        context.update({
+            'include_global_functions': include_global_functions,
+            'include_parameters': include_parameters,
+            'max_str_len': max_str_len
+        })
+        
+        return self.llm_template.render(**context)
+    
+    def display_visual_report(self, 
+                            trace: 'TraceLog', 
+                            result_obj: Optional[Any] = None,
+                            show_images: bool = True,
+                            **display_kwargs) -> None:
+        """
+        Display a visual report in notebook with images.
+        Uses existing functionality from result_obj or PDF model.
+        """
+        try:
+            from IPython.display import display, Markdown
+            
+            # Generate and display the markdown report
+            report = self.generate_visual_report(trace, result_obj)
+            display(Markdown(report))
+            
+            # Display images using existing functionality
+            if show_images and result_obj:
+                print("\n" + "="*60)
+                print("📸 RESULT IMAGES")
+                print("="*60)
+                
+                # Use existing display functionality from result object
+                if hasattr(result_obj, 'display_images') and callable(result_obj.display_images):
+                    result_obj.display_images(**display_kwargs)
+                elif hasattr(result_obj, 'show_result_with_highlights') and callable(result_obj.show_result_with_highlights):
+                    result_obj.show_result_with_highlights(**display_kwargs)
+                elif hasattr(result_obj, 'pdf_model') and result_obj.pdf_model:
+                    # Fallback to PDF model show method
+                    highlight_boxes = {}
+                    if hasattr(result_obj, 'noise_regions') and result_obj.noise_regions:
+                        highlight_boxes["Noise Regions"] = {
+                            "boxes": result_obj.noise_regions,
+                            "color": "red"
+                        }
+                    if hasattr(result_obj, 'content_regions') and result_obj.content_regions:
+                        highlight_boxes["Content Regions"] = {
+                            "boxes": result_obj.content_regions, 
+                            "color": "blue"
+                        }
+                    result_obj.pdf_model.show(highlight_boxes=highlight_boxes, **display_kwargs)
+                else:
+                    print("No display method available for images.")
+                    
+        except ImportError:
+            # Fallback for non-Jupyter environments
+            print(self.generate_visual_report(trace, result_obj))
+            if show_images and result_obj:
+                print("\n📷 Images available (Jupyter required for display)")
+    
+    def _build_template_context(self, 
+                               trace: 'TraceLog', 
+                               result_obj: Optional[Any],
+                               include_global_functions: bool) -> Dict[str, Any]:
+        """Build the context dictionary for template rendering."""
+        context = {
+            'trace_steps': trace.steps,
+            'result_obj': result_obj,
+            'global_functions': {},
+        }
+        
+        if include_global_functions:
+            context['global_functions'] = trace._extract_global_functions()
+        
+        return context
+    
+    def _format_json_outline(self, data: Any, prefix: str = "", max_str_len: int = 100) -> List[str]:
+        """Format nested dict/list as outline for better readability."""
+        lines: List[str] = []
+        
+        if isinstance(data, dict):
+            for key, value in data.items():
+                cur = f"{prefix}.{key}" if prefix else key
+                if isinstance(value, dict):
+                    lines.append(f"{cur} (object with {len(value)} properties)")
+                    lines.extend(self._format_json_outline(value, cur, max_str_len))
+                elif isinstance(value, list):
+                    if value:
+                        lines.append(f"{cur} ({len(value)} items)")
+                        if len(value) <= 5:
+                            for i, item in enumerate(value):
+                                lines.extend(self._format_json_outline(item, f"{cur}[{i}]", max_str_len))
+                        else:
+                            # Show first few items for large arrays
+                            for i in range(3):
+                                lines.extend(self._format_json_outline(value[i], f"{cur}[{i}]", max_str_len))
+                            lines.append(f"{cur}[...] ({len(value)-3} more items)")
+                    else:
+                        lines.append(f"{cur}: []")
+                else:
+                    s = str(value)
+                    if len(s) > max_str_len:
+                        lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+                    else:
+                        lines.append(f"{cur}: {s}")
+        elif isinstance(data, list):
+            for i, item in enumerate(data[:10]):
+                cur = f"{prefix}[{i}]" if prefix else f"[{i}]"
+                lines.extend(self._format_json_outline(item, cur, max_str_len))
+            if len(data) > 10:
+                lines.append(f"{prefix}[...] ({len(data)-10} more items)")
+        else:
+            s = str(data)
+            if len(s) > max_str_len:
+                lines.append(f"{prefix}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+            else:
+                lines.append(f"{prefix}: {s}")
+        
+        return lines
 
 # ---------- core TraceLog --------------------------------------------------- #
 class TraceLog:
@@ -65,6 +400,7 @@ class TraceLog:
     def __init__(self) -> None:
         self.steps: List[Dict[str, Any]] = []
         self.metadata: Dict[str, Any] = {}
+        self._report_generator = TraceReportGenerator()
 
     # --------------------------------------------------------------------- #
     # public helpers
@@ -203,6 +539,18 @@ class TraceLog:
                 }
 
         return functions
+    
+    def generate_visual_report(self, result_obj: Optional[Any] = None, **kwargs) -> str:
+        """Generate visual report using template system."""
+        return self._report_generator.generate_visual_report(self, result_obj, **kwargs)
+    
+    def generate_llm_report(self, result_obj: Optional[Any] = None, **kwargs) -> str:
+        """Generate LLM-friendly report using template system."""
+        return self._report_generator.generate_llm_report(self, result_obj, **kwargs)
+    
+    def display_report(self, result_obj: Optional[Any] = None, **kwargs) -> None:
+        """Display visual report in notebook with images."""
+        self._report_generator.display_visual_report(self, result_obj, **kwargs)
 
 class TraceableWorkflow:
     """
@@ -500,106 +848,106 @@ class TraceableWorkflow:
         
 #         return body
 
-#     def format_json_outline(self, data: Any, prefix: str = "", max_str_len: int = 100) -> List[str]:
-#         """Outline-style dump of nested dict/list for LLM consumption with enhanced lambda formatting."""
-#         lines: List[str] = []
-#         if isinstance(data, dict):
-#             for key, value in data.items():
-#                 cur = f"{prefix}.{key}" if prefix else key
-#                 if isinstance(value, dict):
-#                     # Special handling for lambda payloads
-#                     if 'label' in value and 'lambda_body' in value:
-#                         lines.append(f"{cur} (lambda function):")
+    # def format_json_outline(self, data: Any, prefix: str = "", max_str_len: int = 100) -> List[str]:
+    #     """Outline-style dump of nested dict/list for LLM consumption with enhanced lambda formatting."""
+    #     lines: List[str] = []
+    #     if isinstance(data, dict):
+    #         for key, value in data.items():
+    #             cur = f"{prefix}.{key}" if prefix else key
+    #             if isinstance(value, dict):
+    #                 # Special handling for lambda payloads
+    #                 if 'label' in value and 'lambda_body' in value:
+    #                     lines.append(f"{cur} (lambda function):")
                         
-#                         # Show closure variables in full (only if they exist)
-#                         if 'closure_vars' in value and value['closure_vars']:
-#                             for var_name, var_value in value['closure_vars'].items():
-#                                 lines.append(f"{cur}.closure_vars.{var_name}: {var_value}")
+    #                     # Show closure variables in full (only if they exist)
+    #                     if 'closure_vars' in value and value['closure_vars']:
+    #                         for var_name, var_value in value['closure_vars'].items():
+    #                             lines.append(f"{cur}.closure_vars.{var_name}: {var_value}")
                         
-#                         # Show lambda body with Python formatting
-#                         if 'lambda_body' in value:
-#                             body = value['lambda_body']
-#                             lines.append(f"{cur}.lambda_body:")
-#                             lines.append("```python")
-#                             # Format with Black-style formatting
-#                             formatted_body = self._format_lambda_body(body)
-#                             lines.append(f"lambda d: {formatted_body}")
-#                             lines.append("```")
+    #                     # Show lambda body with Python formatting
+    #                     if 'lambda_body' in value:
+    #                         body = value['lambda_body']
+    #                         lines.append(f"{cur}.lambda_body:")
+    #                         lines.append("```python")
+    #                         # Format with Black-style formatting
+    #                         formatted_body = self._format_lambda_body(body)
+    #                         lines.append(f"lambda d: {formatted_body}")
+    #                         lines.append("```")
                         
-#                         # Show accesses in a clean list
-#                         if 'accesses' in value and value['accesses']:
-#                             lines.append(f"{cur}.accesses: {', '.join(value['accesses'])}")
-#                     else:
-#                         lines.append(f"{cur} (object with {len(value)} properties)")
-#                         lines.extend(self.format_json_outline(value, cur, max_str_len))
-#                 elif isinstance(value, list):
-#                     # Don't show the redundant array header, just show the contents
-#                     if value:
-#                         # Show all items for small arrays, or first few for large ones
-#                         if len(value) <= 5:
-#                             for i, item in enumerate(value):
-#                                 if isinstance(item, dict) and 'label' in item and 'lambda_body' in item:
-#                                     # Special lambda formatting
-#                                     lines.append(f"{cur}[{i}] (lambda function):")
+    #                     # Show accesses in a clean list
+    #                     if 'accesses' in value and value['accesses']:
+    #                         lines.append(f"{cur}.accesses: {', '.join(value['accesses'])}")
+    #                 else:
+    #                     lines.append(f"{cur} (object with {len(value)} properties)")
+    #                     lines.extend(self.format_json_outline(value, cur, max_str_len))
+    #             elif isinstance(value, list):
+    #                 # Don't show the redundant array header, just show the contents
+    #                 if value:
+    #                     # Show all items for small arrays, or first few for large ones
+    #                     if len(value) <= 5:
+    #                         for i, item in enumerate(value):
+    #                             if isinstance(item, dict) and 'label' in item and 'lambda_body' in item:
+    #                                 # Special lambda formatting
+    #                                 lines.append(f"{cur}[{i}] (lambda function):")
                                     
-#                                     # Show closure variables in full (only if they exist)
-#                                     if 'closure_vars' in item and item['closure_vars']:
-#                                         for var_name, var_value in item['closure_vars'].items():
-#                                             lines.append(f"{cur}[{i}].closure_vars.{var_name}: {var_value}")
+    #                                 # Show closure variables in full (only if they exist)
+    #                                 if 'closure_vars' in item and item['closure_vars']:
+    #                                     for var_name, var_value in item['closure_vars'].items():
+    #                                         lines.append(f"{cur}[{i}].closure_vars.{var_name}: {var_value}")
                                     
-#                                     # Show lambda body with Python formatting
-#                                     if 'lambda_body' in item:
-#                                         body = item['lambda_body']
-#                                         lines.append(f"{cur}[{i}].lambda_body:")
-#                                         lines.append("```python")
-#                                         # Format with Black-style formatting
-#                                         formatted_body = self._format_lambda_body(body)
-#                                         lines.append(f"lambda d: {formatted_body}")
-#                                         lines.append("```")
+    #                                 # Show lambda body with Python formatting
+    #                                 if 'lambda_body' in item:
+    #                                     body = item['lambda_body']
+    #                                     lines.append(f"{cur}[{i}].lambda_body:")
+    #                                     lines.append("```python")
+    #                                     # Format with Black-style formatting
+    #                                     formatted_body = self._format_lambda_body(body)
+    #                                     lines.append(f"lambda d: {formatted_body}")
+    #                                     lines.append("```")
                                     
-#                                     # Show accesses in a clean list
-#                                     if 'accesses' in item and item['accesses']:
-#                                         lines.append(f"{cur}[{i}].accesses: {', '.join(item['accesses'])}")
+    #                                 # Show accesses in a clean list
+    #                                 if 'accesses' in item and item['accesses']:
+    #                                     lines.append(f"{cur}[{i}].accesses: {', '.join(item['accesses'])}")
                                         
-#                                 elif isinstance(item, (dict, list)):
-#                                     lines.extend(self.format_json_outline(item, f"{cur}[{i}]", max_str_len))
-#                                 else:
-#                                     item_str = str(item)
-#                                     if len(item_str) > max_str_len:
-#                                         lines.append(f"{cur}[{i}]: \"{item_str[:max_str_len]}...\" (string, {len(item_str)} chars)")
-#                                     else:
-#                                         lines.append(f"{cur}[{i}]: {item_str}")
-#                         else:
-#                             # For large arrays, show first few items
-#                             first = value[0]
-#                             if isinstance(first, dict):
-#                                 lines.extend(self.format_json_outline(first, f"{cur}[0]", max_str_len))
-#                             else:
-#                                 preview = ", ".join(
-#                                     (str(item)[:20] + '...' if len(str(item))>20 else str(item))
-#                                     for item in value[:3]
-#                                 )
-#                                 lines.append(f"{cur}: {preview}")
-#                 else:
-#                     s = str(value)
-#                     if len(s) > max_str_len:
-#                         lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
-#                     else:
-#                         lines.append(f"{cur}: {s}")
-#         elif isinstance(data, list):
-#             for i, item in enumerate(data[:10]):
-#                 cur = f"{prefix}[{i}]" if prefix else f"[{i}]"
-#                 if isinstance(item, (dict, list)):
-#                     lines.extend(self.format_json_outline(item, cur, max_str_len))
-#                 else:
-#                     s = str(item)
-#                     if len(s) > max_str_len:
-#                         lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
-#                     else:
-#                         lines.append(f"{cur}: {s}")
-#             if len(data) > 10:
-#                 lines.append(f"{prefix}[...] ({len(data)-10} more items)")
-#         return lines
+    #                             elif isinstance(item, (dict, list)):
+    #                                 lines.extend(self.format_json_outline(item, f"{cur}[{i}]", max_str_len))
+    #                             else:
+    #                                 item_str = str(item)
+    #                                 if len(item_str) > max_str_len:
+    #                                     lines.append(f"{cur}[{i}]: \"{item_str[:max_str_len]}...\" (string, {len(item_str)} chars)")
+    #                                 else:
+    #                                     lines.append(f"{cur}[{i}]: {item_str}")
+    #                     else:
+    #                         # For large arrays, show first few items
+    #                         first = value[0]
+    #                         if isinstance(first, dict):
+    #                             lines.extend(self.format_json_outline(first, f"{cur}[0]", max_str_len))
+    #                         else:
+    #                             preview = ", ".join(
+    #                                 (str(item)[:20] + '...' if len(str(item))>20 else str(item))
+    #                                 for item in value[:3]
+    #                             )
+    #                             lines.append(f"{cur}: {preview}")
+    #             else:
+    #                 s = str(value)
+    #                 if len(s) > max_str_len:
+    #                     lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+    #                 else:
+    #                     lines.append(f"{cur}: {s}")
+    #     elif isinstance(data, list):
+    #         for i, item in enumerate(data[:10]):
+    #             cur = f"{prefix}[{i}]" if prefix else f"[{i}]"
+    #             if isinstance(item, (dict, list)):
+    #                 lines.extend(self.format_json_outline(item, cur, max_str_len))
+    #             else:
+    #                 s = str(item)
+    #                 if len(s) > max_str_len:
+    #                     lines.append(f"{cur}: \"{s[:max_str_len]}...\" (string, {len(s)} chars)")
+    #                 else:
+    #                     lines.append(f"{cur}: {s}")
+    #         if len(data) > 10:
+    #             lines.append(f"{prefix}[...] ({len(data)-10} more items)")
+    #     return lines
 
 #     def _extract_global_functions(self) -> Dict[str, Dict[str, Any]]:
 #         """Extract unique functions and their documentation from all steps."""
@@ -633,51 +981,51 @@ class TraceableWorkflow:
         
 #         return functions
 
-#     def display_images(self):
-#         """Display base64 images stored in metadata."""
-#         if 'sample_images' not in self.metadata:
-#             print("No sample images available in trace.")
-#             return
+    # def display_images(self):
+    #     """Display base64 images stored in metadata."""
+    #     if 'sample_images' not in self.metadata:
+    #         print("No sample images available in trace.")
+    #         return
         
-#         sample_images = self.metadata['sample_images']
-#         image_config = self.metadata.get('image_config', {})
+    #     sample_images = self.metadata['sample_images']
+    #     image_config = self.metadata.get('image_config', {})
         
-#         print(f"\n📸 SAMPLE IMAGES (Zoom: {image_config.get('zoom', 1.0)}x, "
-#               f"Pages: 0-{image_config.get('page_limit', 'all')})")
-#         print("="*60)
+    #     print(f"\n📸 SAMPLE IMAGES (Zoom: {image_config.get('zoom', 1.0)}x, "
+    #           f"Pages: 0-{image_config.get('page_limit', 'all')})")
+    #     print("="*60)
         
-#         # Display metadata
-#         if 'metadata' in sample_images:
-#             meta = sample_images['metadata']
-#             print(f"📊 Results: {sample_images.get('noise_regions_count', 0)} noise regions, "
-#                   f"{sample_images.get('inverse_regions_count', 0)} content regions")
-#             print(f"🎨 Colors: Noise={meta.get('noise_color', 'red')}, "
-#                   f"Content={meta.get('inverse_color', 'blue')}")
+    #     # Display metadata
+    #     if 'metadata' in sample_images:
+    #         meta = sample_images['metadata']
+    #         print(f"📊 Results: {sample_images.get('noise_regions_count', 0)} noise regions, "
+    #               f"{sample_images.get('inverse_regions_count', 0)} content regions")
+    #         print(f"🎨 Colors: Noise={meta.get('noise_color', 'red')}, "
+    #               f"Content={meta.get('inverse_color', 'blue')}")
         
-#         # Display images using IPython if available
-#         try:
-#             from IPython.display import display, Image as IPImage, HTML
-#             import base64
+    #     # Display images using IPython if available
+    #     try:
+    #         from IPython.display import display, Image as IPImage, HTML
+    #         import base64
             
-#             # Display original image
-#             if 'original_pdf_sample' in sample_images:
-#                 print(f"\n🗄️ Original PDF Sample:")
-#                 display(HTML("<h4>Original PDF</h4>"))
-#                 img_bytes = base64.b64decode(sample_images['original_pdf_sample'])
-#                 display(IPImage(data=img_bytes, width=800))
+    #         # Display original image
+    #         if 'original_pdf_sample' in sample_images:
+    #             print(f"\n🗄️ Original PDF Sample:")
+    #             display(HTML("<h4>Original PDF</h4>"))
+    #             img_bytes = base64.b64decode(sample_images['original_pdf_sample'])
+    #             display(IPImage(data=img_bytes, width=800))
             
-#             # Display annotated image  
-#             if 'annotated_pdf_sample' in sample_images:
-#                 print(f"\n🎯 Annotated PDF Sample:")
-#                 display(HTML("<h4>Noise Detection Results</h4>"))
-#                 img_bytes = base64.b64decode(sample_images['annotated_pdf_sample'])
-#                 display(IPImage(data=img_bytes, width=800))
+    #         # Display annotated image  
+    #         if 'annotated_pdf_sample' in sample_images:
+    #             print(f"\n🎯 Annotated PDF Sample:")
+    #             display(HTML("<h4>Noise Detection Results</h4>"))
+    #             img_bytes = base64.b64decode(sample_images['annotated_pdf_sample'])
+    #             display(IPImage(data=img_bytes, width=800))
                 
-#         except ImportError:
-#             # Fallback for non-Jupyter environments
-#             print("📷 Original PDF: Base64 image available")
-#             print("📷 Annotated PDF: Base64 image available")
-#             print("   To view: Use in Jupyter environment or decode base64 manually")
+    #     except ImportError:
+    #         # Fallback for non-Jupyter environments
+    #         print("📷 Original PDF: Base64 image available")
+    #         print("📷 Annotated PDF: Base64 image available")
+    #         print("   To view: Use in Jupyter environment or decode base64 manually")
 
 #     def get_formatted_trace_with_images(self, use_json_outline=False, max_str_len=100, include_global_functions=True, include_images=False) -> str:
 #         """
