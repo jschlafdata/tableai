@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Optional
 import fitz
 import numpy as np
+from enum import Enum
 
 from tableai.pdf.query import (
     LineTextIndex, 
@@ -180,6 +181,33 @@ class VirtualPageManager:
         """Get combined document height."""
         return self.metadata.get("combined_doc_height", 0)
 
+
+@dataclass
+class PDFMetadata:
+
+    trailer: Optional[str] = None
+    version: Optional[str] = None
+    meta_tag: Optional[str] = None
+    metadata_accessors: Optional[Tuple] = ("creator", "title", "author", "subject", "keywords")
+    _doc: Optional[fitz.Document] = None
+    _context: Optional[dict] = None
+
+    def __post_init__(self):
+        trailer = self._doc.pdf_trailer()
+        self.meta_version = trailer.get("Version") if isinstance(trailer, dict) else None
+        md = self._doc.metadata
+        wanted = ("creator", "title", "author", "subject", "keywords")
+        self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
+        self._doc.close()
+    
+    @classmethod
+    def scan_header_ocr(cls, doc: fitz.Document, y1: Optional[int]=None):
+        pass
+
+class LoadType(str, Enum):
+    FULL = "full"
+    FIRST = "first"
+
 # --- REFACTORED PDFModel CLASS ---
 
 class PDFModel(BaseModel):
@@ -193,6 +221,7 @@ class PDFModel(BaseModel):
 
     # ----------------------- Core public attributes ------------------------ #
     path: Union[str, Path, bytes, bytearray]
+    load_type: Optional[LoadType] = LoadType.FULL
     s3_client: Optional[Any] = None
     text_normalizer: Optional[TextNormalizer] = TextNormalizer(
         patterns={
@@ -206,8 +235,7 @@ class PDFModel(BaseModel):
     doc: Optional[fitz.Document] = None
     name: Optional[str] = None
     line_index: Optional["LineTextIndex"] = None
-    meta_version: Optional[str] = None
-    meta_tag: Optional[str] = None
+    pdf_metadata: Optional[PDFMetadata] = None
     virtual_page_metadata: Optional[dict] = None
     
     # NEW: Centralized virtual page manager
@@ -236,22 +264,17 @@ class PDFModel(BaseModel):
 
         # 2. Build combined document (+ virtual‑page metadata)
         self.doc, self.virtual_page_metadata = self._combine_pages_and_get_metadata(
-            original_doc
+            original_doc=original_doc, 
+            load_type=self.load_type
         )
+
+        self.pdf_metadata = PDFMetadata(_doc=self.doc)
         
         # NEW: Instantiate the VirtualPageManager with the generated metadata
         if self.virtual_page_metadata:
             self.vpm = VirtualPageManager(self.virtual_page_metadata)
         else:
             raise ValueError("Failed to generate virtual page metadata.")        
-
-        # 4. Extract key PDF metadata
-        trailer = self.doc.pdf_trailer()
-        self.meta_version = trailer.get("Version") if isinstance(trailer, dict) else None
-        md = self.doc.metadata
-        wanted = ("creator", "title", "author", "subject", "keywords")
-        self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in wanted if md.get(k))
-        original_doc.close()
 
         self.line_index = LineTextIndex.from_pdf_model(self, text_normalizer=self.text_normalizer, whitespace_generator=self.whitespace_generator)
 
@@ -263,16 +286,26 @@ class PDFModel(BaseModel):
     @staticmethod
     def _combine_pages_and_get_metadata(
         original_doc: fitz.Document,
+        load_type: LoadType,
+        LOAD_FIRST_PAGE_ONLY: bool = False
     ) -> Tuple[fitz.Document, dict]:
         """Return a vertically‑stitched document + rich per‑page metadata."""
         # This method's responsibility is to create the raw metadata.
         # It remains largely unchanged as it is the source of truth for the VPM.
+        
         combined = fitz.open()
         total_h = 0.0
         max_w = 0.0
 
+        if load_type == LoadType.FIRST:
+            LOAD_FIRST_PAGE_ONLY = True
+
+        # Determine the effective page range
+        page_range = [original_doc[0]] if LOAD_FIRST_PAGE_ONLY else original_doc
+        page_count = 1 if LOAD_FIRST_PAGE_ONLY else len(original_doc)
+
         page_dims: List[dict] = []
-        for pg in original_doc:
+        for i, pg in enumerate(page_range):
             dims = {"width": pg.rect.width, "height": pg.rect.height}
             page_dims.append(dims)
             total_h += dims["height"]
@@ -289,11 +322,14 @@ class PDFModel(BaseModel):
         }
 
         y_offset = 0.0
-        for i, pg in enumerate(original_doc):
-            vpage_breaks.append((y_offset, i))
+        for i, pg in enumerate(page_range):
+            # Use original page index (i) for consistency
+            page_idx = i if not LOAD_FIRST_PAGE_ONLY else 0
+            
+            vpage_breaks.append((y_offset, page_idx))
             tgt_rect = fitz.Rect(0, y_offset, pg.rect.width, y_offset + pg.rect.height)
-            vpage_bounds[i] = tuple(tgt_rect)
-            combined_page.show_pdf_page(tgt_rect, original_doc, i)
+            vpage_bounds[page_idx] = tuple(tgt_rect)
+            combined_page.show_pdf_page(tgt_rect, original_doc, page_idx)
 
             local_content = fitz.Rect()
             for b in pg.get_text("blocks"):
@@ -302,22 +338,22 @@ class PDFModel(BaseModel):
             if not local_content.is_empty:
                 content_rel = tuple(local_content)
                 margin_rel = Geometry.inverse_page_blocks(
-                    {i: {"bboxes": [content_rel], "page_width": pg.rect.width, "page_height": pg.rect.height}}
+                    {page_idx: {"bboxes": [content_rel], "page_width": pg.rect.width, "page_height": pg.rect.height}}
                 )
                 content_abs = Geometry.scale_y(content_rel, y_offset)
                 margin_abs = [Geometry.scale_y(b, y_offset) for b in margin_rel]
 
                 content_areas["content_bboxes"].append(content_abs)
                 content_areas["margin_bboxes"].extend(margin_abs)
-                content_areas["pages"][i] = {"content_bbox(rel)": content_rel, "margin_bboxes(rel)": margin_rel}
+                content_areas["pages"][page_idx] = {"content_bbox(rel)": content_rel, "margin_bboxes(rel)": margin_rel}
             else:
-                content_areas["pages"][i] = {"content_bbox(rel)": None, "margin_bboxes(rel)": []}
+                content_areas["pages"][page_idx] = {"content_bbox(rel)": None, "margin_bboxes(rel)": []}
 
             y_offset += pg.rect.height
 
         vpage_breaks.sort()
         metadata = {
-            "page_count": len(original_doc),
+            "page_count": page_count,
             "page_bounds": vpage_bounds,
             "page_breaks": vpage_breaks,
             "page_content_areas": content_areas,
