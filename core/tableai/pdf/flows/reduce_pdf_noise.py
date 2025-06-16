@@ -229,6 +229,7 @@ parameter_strategies = {
     )
     
     # === Result Metadata ===
+
     noise_regions_count: int = Field(default=0, description="Number of noise regions detected")
     content_regions_count: int = Field(default=0, description="Number of content regions identified") 
     pages_analyzed: int = Field(default=0, description="Total pages included in analysis")
@@ -606,6 +607,5 @@ def find_combined_noise_regions(
     )
     
     # Add images to trace metadata
-    trace.add_metadata(process_result.tracer_metadata)
-
+    # trace.add_metadata(process_result.tracer_metadata)
     return process_result
