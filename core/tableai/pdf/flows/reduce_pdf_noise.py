@@ -182,6 +182,8 @@ The goal and purpose of the new rendered image without noise is the following:
 parameters can be reconfigured to improve the process.
 All possible parameter values that can be updated or refined to impact result output.
 ---
+
+```python
 noise_params = NoiseRegionParams(
     # === Core Geometric Detection Parameters ===
     HEADER_BOUND=75,                    # Y-coordinate boundary for header candidates (reduced from 100)
@@ -207,6 +209,7 @@ noise_params = NoiseRegionParams(
     # === Universal Parameter ===
     query_label="CustomNoiseDetection_Run_2024"  # Universal label for all operations
 )
+```
         """.strip(),
         description="Optional parameters for result refinement and post-processing"
     )
