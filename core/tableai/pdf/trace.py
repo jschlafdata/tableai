@@ -1,14 +1,14 @@
-from typing import List, Dict, Any, Tuple, Optional, Callable
-from pydantic import BaseModel
-import inspect
-import textwrap
-import hashlib
-from tableai.pdf.coordinates import (
-    Geometry,
-    CoordinateMapping
-)
-
 from __future__ import annotations
+
+# from typing import List, Dict, Any, Tuple, Optional, Callable
+# from pydantic import BaseModel
+# import inspect
+# import textwrap
+# import hashlib
+# from tableai.pdf.coordinates import (
+#     Geometry,
+#     CoordinateMapping
+# )
 
 import inspect
 import textwrap
