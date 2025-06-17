@@ -379,8 +379,8 @@ class ChainResult(Generic[T], UserList[T]):
     A generic, list-like container for the results of chained operations.
     """
     def __repr__(self) -> str:
-        if not self.data: return "Chainable(count=0)"
-        return f"Chainable(count={len(self)}, type={type(self.data[0]).__name__})"
+        if not self.data: return "ChainResult(count=0)"
+        return f"ChainResult(count={len(self)}, type={type(self.data[0]).__name__})"
     def apply(self, func: Callable[[T], Any]) -> list:
         return [func(item) for item in self.data]
     def pluck(self, *keys: str) -> Union[list, list[tuple]]:
@@ -391,7 +391,16 @@ class ChainResult(Generic[T], UserList[T]):
     def to_dict(self) -> List[Dict[str, Any]]:
         return self.data
 
-class GroupChain:
+class BaseChain:
+    """
+    An empty base class to mark an object as a 'chain' that needs
+    to be executed to produce a final result.
+    """
+    # The abstract method now correctly returns a ChainResult
+    def as_chain_result(self) -> ChainResult:
+        raise NotImplementedError
+
+class GroupChain(BaseChain):
     """Chainable processor for GroupbyQueryResult objects with pandas-style API."""
     
     def __init__(self, data: List['GroupbyQueryResult']):
