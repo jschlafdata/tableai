@@ -397,7 +397,7 @@ class BaseChain:
     to be executed to produce a final result.
     """
     # The abstract method now correctly returns a ChainResult
-    def as_chain_result(self) -> ChainResult:
+    async def as_chain_result(self) -> ChainResult:
         raise NotImplementedError
 
 class GroupChain(BaseChain):
@@ -560,7 +560,7 @@ class GroupChain(BaseChain):
         """Return first n results (pandas-style)."""
         return self.to_list()[:n]
 
-    def as_chain_result(self) -> ChainResult[Dict[str, Any]]:
+    async def as_chain_result(self) -> ChainResult[Dict[str, Any]]:
         """
         Executes the chain and wraps the resulting list of dictionaries
         in a Chainable container, preserving the fluent interface.
