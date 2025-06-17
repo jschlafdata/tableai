@@ -373,6 +373,23 @@ def relative_to_absolute_bboxes(field_name: str, page_bounds_field: str) -> Grou
     
     return _to_absolute
 
+T = TypeVar('T')
+class ChainResult(Generic[T], UserList[T]):
+    """
+    A generic, list-like container for the results of chained operations.
+    """
+    def __repr__(self) -> str:
+        if not self.data: return "Chainable(count=0)"
+        return f"Chainable(count={len(self)}, type={type(self.data[0]).__name__})"
+    def apply(self, func: Callable[[T], Any]) -> list:
+        return [func(item) for item in self.data]
+    def pluck(self, *keys: str) -> Union[list, list[tuple]]:
+        if not all(isinstance(item, dict) for item in self.data):
+            raise TypeError(".pluck() is only supported for collections of dictionaries.")
+        if len(keys) == 1: return [item.get(keys[0]) for item in self.data]
+        return [tuple(item.get(key) for key in keys) for item in self.data]
+    def to_dict(self) -> List[Dict[str, Any]]:
+        return self.data
 
 class GroupChain:
     """Chainable processor for GroupbyQueryResult objects with pandas-style API."""
@@ -533,6 +550,14 @@ class GroupChain:
     def head(self, n: int = 5) -> List[Dict[str, Any]]:
         """Return first n results (pandas-style)."""
         return self.to_list()[:n]
+
+    def as_chain_result(self) -> ChainResult[Dict[str, Any]]:
+        """
+        Executes the chain and wraps the resulting list of dictionaries
+        in a Chainable container, preserving the fluent interface.
+        """
+        result_list = self.to_list()
+        return ChainResult(result_list)
     
     def __len__(self) -> int:
         """Return number of groups after filtering."""
