@@ -20,6 +20,7 @@ class GenericPDFFlowContext(BaseModel):
     # --- Private Attributes for internal state ---
     # The Flow object is created once and held for the lifetime of the runner.
     _flow: Optional['Flow'] = PrivateAttr(default=None)
+    _pdf_model: Optional['PDFModel'] = PrivateAttr(default=None)
 
     # --- Configuration Fields (provided by the user at creation) ---
     flow_params: 'FlowParams'
@@ -65,7 +66,7 @@ class GenericPDFFlowContext(BaseModel):
         provided pdf_path. This is called "just-in-time" by the run method.
         """
         print(f"--- Initializing Dependencies for: {pdf_path} ---")
-        pdf_model = PDFModel(
+        self._pdf_model = PDFModel(
             path=pdf_path, 
             text_normalizer=self.text_normalizer,
             whitespace_generator=self.whitespace_generator,
@@ -73,14 +74,14 @@ class GenericPDFFlowContext(BaseModel):
         )
         # We always use the runner's single trace_logger instance.
         return FlowDependencies(
-            pdf_model=pdf_model, 
+            pdf_model=self._pdf_model, 
             trace=self.trace_logger
         )
 
     # =============================================================
     # The `run` method now accepts the required runtime arguments.
     # =============================================================
-    async def run(self, pdf_path: str) -> 'FlowResult':
+    async def run(self, pdf_path: str, inclue_pdf_model: bool = True) -> 'FlowResult':
         """
         Executes the encapsulated flow for a specific pdf_path.
         """
@@ -94,6 +95,8 @@ class GenericPDFFlowContext(BaseModel):
         
         # 3. Execute the flow with the just-in-time dependencies.
         result = await flow_to_run.run(deps=dependencies)
+        if inclue_pdf_model:
+            result.pdf_model = self._pdf_model
         
         # 4. Store the result and return it.
         self.final_result_ = result
