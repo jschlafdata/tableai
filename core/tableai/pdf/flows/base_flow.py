@@ -295,11 +295,16 @@ class Flow(Generic[D, R]):
             except Exception as e:
                 node_specs.append({n: 'Node spec collection failed. {e}'})
 
+        leaf_nodes = [k for k,v in dag.items() if not v]
+        if leaf_nodes:
+            end_node=leaf_nodes[0]
+
         flow_state['_metadata'] = {
             'dag': dag,
             'execution_order': execution_order, 
             'func_trace': node_specs, 
-            'mermaid': self.to_mermaid()
+            'mermaid': self.to_mermaid(),
+            'end_node' : end_node
         }
         return flow_state
 
