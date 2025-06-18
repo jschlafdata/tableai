@@ -69,7 +69,6 @@ class Flow(Generic[D, R]):
         self.nodes: Dict[str, Dict[str, Any]] = {}
         self._run_cache: Dict[str, Any] = {}
         self.auto_clear_on_failure = auto_clear_on_failure
-        __trace_ignore__ = TRACE_IGNORE
 
     # =============================================================
     # The `step` decorator also needs a final simplification
@@ -100,7 +99,7 @@ class Flow(Generic[D, R]):
             }
             print(f"Registered node '{node_name}' (type: {context.context_type})")
             return func
-        decorator.__trace_ignore__ = True
+        decorator.__trace_ignore__=True
         return decorator
 
     def get_dag(self) -> Dict[str, List[str]]:
@@ -320,7 +319,7 @@ class Flow(Generic[D, R]):
             for f in traced_func:
                 all_t.append(f)
 
-        print(f"all_t:\n{all_t}")
+        print(f"ALL TRACED FUNCTIONS:\n{all_t}")
 
         flow_state['_metadata'] = {
             'dag': dag,

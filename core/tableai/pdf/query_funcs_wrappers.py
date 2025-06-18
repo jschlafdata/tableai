@@ -23,7 +23,9 @@ def merge_all_bboxes(field_name: str) -> GroupFunction:
     Returns:
         Function that takes a group and returns merged bbox or None
     """
+    __trace_ignore__ = True
     def _merge_bboxes(group: 'GroupbyQueryResult') -> Optional[BBox]:
+        __trace_ignore__ = True
         bboxes_to_merge: Optional[BBoxList] = getattr(group, field_name, None)
         if not bboxes_to_merge:
             return None

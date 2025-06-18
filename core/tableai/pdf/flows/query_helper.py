@@ -15,6 +15,8 @@ class GenericQueryBase(BaseModel):
     High-level parameters for querying the LineTextIndex with validation and restrictions.
     Provides clear guidance on available options and enforces proper usage patterns.
     """
+
+    __trace_ignore__ = True
     
     # =================== FIELD MAPPINGS & CONSTANTS ===================
     # Use ClassVar to make these accessible in validators
@@ -258,6 +260,7 @@ class GenericQueryBase(BaseModel):
     def build_query(self, filterby: Optional[Callable] = None, description: Optional[str] = None) -> 'QueryParams':
         """Create a complete QueryParams object with groupby if specified."""
         # Start with base query params
+        __trace_ignore__ = True
         base_params = self.create_base_query_params()
         
         # Add groupby if specified
@@ -284,5 +287,6 @@ class QueryBuilder:
         Example:
             QueryBuilder.build(key="text", groupby_keys=["block"])
         """
+        __trace_ignore__ = True
         # We can add validation or default logic here if needed in the future.
         return GenericQueryBase(**kwargs)
