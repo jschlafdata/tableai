@@ -149,22 +149,19 @@ def _generate_node_specification(
         
         # Try to resolve the name to a live object
         callable_obj = func.__globals__.get(first_part)
-        
+            
         if callable_obj:
             try:
                 for attr in name.split('.')[1:]:
                     callable_obj = getattr(callable_obj, attr)
                 
-                # =============================================================
-                # THE FINAL, ELEGANT FILTERING LOGIC
-                # =============================================================
-                # Check for the magic `__trace_ignore__` flag on the function.
+                # --- THE FINAL, CORRECT CHECK ---
+                # We check the flag on the function object itself.
                 if getattr(callable_obj, '__trace_ignore__', False):
-                    continue # Skip this framework-internal call
+                    continue # Skip this call
 
                 metadata = _get_callable_metadata(callable_obj)
                 called_functions_spec.append(CallSpecification(type='function_call', **metadata))
-
             except AttributeError:
                 called_functions_spec.append(CallSpecification(name=name, type="method_call", docstring="Method on a local or instance variable."))
         else:

@@ -99,6 +99,7 @@ class Flow(Generic[D, R]):
             }
             print(f"Registered node '{node_name}' (type: {context.context_type})")
             return func
+        decorator.__trace_ignore__ = True
         return decorator
 
     def get_dag(self) -> Dict[str, List[str]]:
@@ -233,7 +234,6 @@ class Flow(Generic[D, R]):
             execution_order = self._get_execution_order(dag)
             print(f"\nExecution Order: {' -> '.join(execution_order)}\n")
         except (ValueError, KeyError) as e:
-            # ... (error handling is the same)
             pass
 
         flow_state = self._run_cache if use_cache else {}
