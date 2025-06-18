@@ -14,103 +14,123 @@ from tableai.pdf.flows.generic_results import FlowResultStage
 
 import textwrap
 import json
+import pprint
 
 class FlowReportGenerator:
     """
     Generates a human-readable and prescriptive Markdown report from a Flow's
-    execution and deep static analysis data.
+    statically analyzed node specifications.
     """
-    def __init__(self, flow: 'Flow', trace_log: 'EnhancedTraceLog'):
+    def __init__(self, flow: 'Flow'):
+        """
+        Initializes the report generator with the flow definition and
+        pre-computes execution order.
+        """
         self.flow = flow
-        self.trace_log = trace_log
+        try:
+            self.execution_order = flow._get_execution_order(flow.get_dag())
+        except (ValueError, KeyError):
+            self.execution_order = list(getattr(flow, 'nodes', []))  # fallback ordering
 
     def _format_params(self, params: Dict[str, Any]) -> str:
-        """Formats a dictionary of parameters into a nice markdown block."""
+        """Formats a dictionary of parameters into a Markdown JSON code block."""
         if not params:
             return "`None`"
-        return f"```json\n{json.dumps(params, indent=2)}\n```"
+        try:
+            body = json.dumps(params, indent=2, default=repr)
+        except TypeError:
+            body = pprint.pformat(params)
+        return f"```json\n{body}\n```"
 
-    # =============================================================
-    # UPDATED: This method now filters for HIGH impact parameters
-    # =============================================================
     def _format_input_model(self, model_spec: Optional['ModelSpecification']) -> str:
-        """
-        Formats an input model's specification into a markdown table,
-        showing only HIGH impact parameters for tuning guidance.
-        """
-        if not model_spec or not any(f.impact == 'HIGH' for f in model_spec.fields):
-            return "_No high-impact tuning parameters identified for this step._"
-        
-        header = f"#### Model: `{model_spec.name}`\n*_{model_spec.description or 'No description.'}_*\n\n"
-        table = "| Parameter | Type | Default | Impact | Description |\n"
-        table += "|:---|:---|:---|:---|:---|\n"
-        
-        for field in model_spec.fields:
-            # --- CORE CHANGE: Filter for HIGH impact fields ---
-            if field.impact != 'HIGH':
-                continue
-            
-            field_type = field.type.replace("<class '", "").replace("'>", "").replace("typing.", "")
-            default_val = f"`{field.default!r}`" if field.default != 'REQUIRED' else "**REQUIRED**"
-            impact_val = f"**{field.impact}**"
-            table += f"| `{field.name}` | `{field_type}` | {default_val} | {impact_val} | {field.description or ''} |\n"
-            
-        return header + table
+        """Formats an input model's specification into a Markdown table."""
+        if not model_spec or not getattr(model_spec, 'fields', None):
+            return "`None`"
+        high_impact = [f for f in model_spec.fields if f.impact == 'HIGH']
+        other = [f for f in model_spec.fields if f.impact != 'HIGH']
 
-    # =============================================================
-    # UPDATED: This method now includes collapsible source code
-    # =============================================================
+        report = f"#### Model: `{model_spec.name}`\n" \
+                 f"*_{model_spec.description or 'No description.'}_*\n\n"
+        # All parameters
+        report += "<details><summary>All Parameters</summary>\n\n"
+        report += "| Parameter | Type | Default | Impact | Description |\n"
+        report += "|:---|:---|:---|:---|:---|\n"
+        for f in model_spec.fields:
+            ftype = getattr(f.type, '__name__', str(f.type))
+            default = f"`{f.default!r}`" if f.default != 'REQUIRED' else "**REQUIRED**"
+            impact = f"`{f.impact}`" if getattr(f, 'impact', None) else ""
+            report += f"| `{f.name}` | `{ftype}` | {default} | {impact} | {f.description or ''} |\n"
+        report += "\n</details>\n\n"
+        # High impact section
+        if high_impact:
+            report += "**High-Impact Tuning Parameters:**\n\n"
+            report += "| Parameter | Type | Default | Description |\n"
+            report += "|:---|:---|:---|:---|\n"
+            for f in high_impact:
+                ftype = getattr(f.type, '__name__', str(f.type))
+                default = f"`{f.default!r}`" if f.default != 'REQUIRED' else "**REQUIRED**"
+                report += f"| `{f.name}` | `{ftype}` | {default} | {f.description or ''} |\n"
+            report += "\n"
+        return report
+
     def _format_called_functions(self, called_funcs: List['CallSpecification']) -> str:
-        """Formats the list of called functions, including their source code."""
+        """Formats the list of called functions, including their module, signature, docstring, and source."""
         if not called_funcs:
             return "_No significant internal function calls were traced._"
-        
         report = ""
         for call in called_funcs:
-            report += f"\n- **`{call.name}`**\n"
-            if call.module: report += f"  - **Module:** `{call.module}`\n"
-            if call.signature: report += f"  - **Signature:** `{call.signature}`\n"
-            if call.docstring and call.docstring != "No docstring.":
-                report += f"  - **Description:** *{call.docstring.replace(chr(10), ' ')}*\n"
-            
-            # --- CORE CHANGE: Add collapsible source code block ---
-            if call.source_code and call.source_code != "<source not available>":
-                report += textwrap.dedent(f"""
-                  <details>
-                  <summary>Source Code</summary>
-                  
-                  ```python
-                  {textwrap.dedent(call.source_code).strip()}
-                  ```
-                  </details>
-                """)
+            report += f"- **`{call.name}`**\n"
+            if call.module:
+                report += f"  - **Module:** `{call.module}`\n"
+            if call.signature:
+                report += f"  - **Signature:** `{call.signature}`\n"
+            if getattr(call, 'docstring', None) and call.docstring.lower() != "no docstring":
+                doc = call.docstring.replace('\n', ' ')
+                report += f"  - **Description:** *{doc}*\n"
+            if getattr(call, 'source_code', None) and call.source_code != "<source not available>":
+                src = textwrap.indent(textwrap.dedent(call.source_code), '    ')
+                report += (
+                    "  <details>\n"
+                    "  <summary>View Source</summary>\n\n"
+                    "  ```python\n"
+                    f"{src}\n"
+                    "  ```\n"
+                    "  </details>\n"
+                )
         return report
 
     def generate_report(self) -> str:
-        """Generates the full, human-readable markdown report."""
-        # ... (The overall structure of this method is the same, but the
-        #      sub-methods it calls are now more powerful) ...
-        report = f"# Flow Report: {self.flow.overview}\n..." # Summary
-        report += "## Workflow Graph\n...\n" # Mermaid
+        """
+        Generates the full, human-readable Markdown report for the entire flow.
+        """
+        report = f"# Flow Report: {self.flow.overview}\n\n"
+        report += f"**Goal:** *{self.flow.goal}*\n\n"
+        # Mermaid diagram
+        report += "## Workflow Graph\n\n"
+        report += "```mermaid\n" + self.flow.to_mermaid() + "\n```\n\n"
+        # Node breakdown
         report += "## Node Breakdown\n\n"
-        
-        for key, log_entry in self.trace_log.get_log().items():
-            node_name, node_spec = log_entry['name'], self.flow.get_node(log_entry['name']).specification
-            report += f"### {key}\n\n"
-            report += f"**Description:**\n> {node_spec.description.replace(chr(10), ' ')}\n\n"
-            if node_spec.dependencies: report += f"**Depends On:** {', '.join([f'`{d}`' for d in node_spec.dependencies])}\n\n"
-            
-            report += "**Tuning Guidance (High-Impact Parameters):**\n\n"
-            report += f"{self._format_input_model(node_spec.input_model_spec)}\n\n"
-            
-            report += "**Effective Parameters Used in this Run:**\n"
-            report += f"{self._format_params(node_spec.current_params)}\n\n"
-            
+        for i, node_name in enumerate(self.execution_order, start=1):
+            try:
+                node = self.flow.get_node(node_name)
+                spec = node.specification
+            except (KeyError, AttributeError):
+                report += (
+                    f"### {i}. {node_name}\n\n"
+                    "> Could not retrieve specification for this node.\n\n---\n\n"
+                )
+                continue
+            report += f"### {i}. {node_name}\n\n"
+            report += f"**Description:**\n> {spec.description or 'No description.'}\n\n"
+            if getattr(spec, 'decorator_declaration', None):
+                report += "```python\n" + spec.decorator_declaration + "\n```\n\n"
+            report += "**Input Model:**\n\n" + self._format_input_model(spec.input_model_spec) + "\n"
+            if getattr(spec, 'current_params', None):
+                report += "**Effective Parameters at Definition:**\n\n"
+                report += self._format_params(spec.current_params) + "\n\n"
             report += "**Internals & Called Functions:**\n\n"
-            report += f"{self._format_called_functions(node_spec.called_functions)}\n\n"
-            report += "---\n\n"
+            report += self._format_called_functions(spec.called_functions) + "\n\n---\n\n"
         return report
-
 
 class GenericPDFFlowContext(BaseModel):
     """
@@ -194,7 +214,7 @@ class GenericPDFFlowContext(BaseModel):
         # 3. Execute the flow with the just-in-time dependencies.
         result = await flow_to_run.run(deps=dependencies)
         self.final_result_ = result
-        report = FlowReportGenerator(flow=self.flow, trace_log=self.trace_logger)
+        report = FlowReportGenerator(flow=self.flow)
         gen = report.generate_report()
         # print(f"generate_report: {report.generate_report()}")
         return result, self.flow, report

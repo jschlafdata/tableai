@@ -303,12 +303,9 @@ class Flow(Generic[D, R]):
 
         node_specs=[]
         for n in list(self.nodes.keys()):
-            # try:
             _n = self.get_node(n)
             nod_spec = _n.specification
             node_specs.append(nod_spec)
-            # except Exception as e:
-            #     node_specs.append({n: 'Node spec collection failed. {e}'})
 
         leaf_nodes = [k for k,v in dag.items() if not v]
         if leaf_nodes:
