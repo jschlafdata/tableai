@@ -55,7 +55,6 @@ class PDFMetadata:
         self.meta_version = trailer.get("Version") if isinstance(trailer, dict) else None
         md = self._doc.metadata
         self.meta_tag = "|".join(f"{k}|{''.join(md[k].split())}" for k in self.metadata_accessors if md.get(k))
-        self._doc.close()
     
     @classmethod
     def scan_header_ocr(cls, doc: fitz.Document, y1: Optional[int]=None):
@@ -168,14 +167,14 @@ class PDFModel(BaseModel):
 
         # 2. Build combined document (+ virtual-page metadata)
         # This internal helper method is assumed to exist
-        self.doc, virtual_page_metadata = self._combine_pages_and_get_metadata(
+        combined_doc, virtual_page_metadata = self._combine_pages_and_get_metadata(
             original_doc=self.doc,
             load_type=self.load_type
         )
-        _doc = self.doc
+        self.doc = combined_doc
         
         # 3. Harvest metadata and instantiate managers
-        self.pdf_metadata = PDFMetadata(_doc=_doc)
+        self.pdf_metadata = PDFMetadata(_doc=self.doc)
         
         if virtual_page_metadata:
             self.vpm = VirtualPageManager(virtual_page_metadata)
