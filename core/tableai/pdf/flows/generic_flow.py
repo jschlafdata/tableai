@@ -41,7 +41,7 @@ class FlowReportGenerator:
         if not model_spec or not any(f.impact == 'HIGH' for f in model_spec.fields):
             return "_No high-impact tuning parameters identified for this step._"
         
-        header = f"#### Model: `{model_spec.name}`\n*_{model_spec.description or 'No description.'}_*\n\n"
+        header = f"#### Model: `{model_spec.name}`\n*_{model_spec.description if hasattr(model_spec, 'description') else 'No description.'}_*\n\n"
         table = "| Parameter | Type | Default | Impact | Description |\n"
         table += "|:---|:---|:---|:---|:---|\n"
         
@@ -195,5 +195,5 @@ class GenericPDFFlowContext(BaseModel):
         result = await flow_to_run.run(deps=dependencies)
         self.final_result_ = result
         report = FlowReportGenerator(flow=self.flow, trace_log=self.trace_logger)
-        # print(f"generate_report: {report.generate_report()}")
+        print(f"generate_report: {report.generate_report()}")
         return result, self.flow, report
