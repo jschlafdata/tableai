@@ -87,6 +87,59 @@ class Flow(Generic[D, R]):
             return func
         return decorator
 
+    def get_dag(self) -> Dict[str, List[str]]:
+        """
+        Calculates and returns the dependency graph as an adjacency list.
+        
+        Returns:
+            A dictionary where keys are node names and values are a list
+            of nodes that depend on that key.
+        """
+        adj = defaultdict(list)
+        # Also track nodes that are depended upon
+        dependents = set()
+
+        for name, config in self.nodes.items():
+            context_config = config['context_config']
+            if context_config.context_type == "dependency" and context_config.wait_for_nodes:
+                for dep_name in context_config.wait_for_nodes:
+                    if dep_name not in self.nodes:
+                        raise ValueError(f"Node '{name}' has an undefined dependency: '{dep_name}'")
+                    adj[dep_name].append(name)
+                    dependents.add(name)
+        
+        # Ensure all nodes are in the adjacency list, even if they have no children
+        for name in self.nodes:
+            if name not in adj:
+                adj[name] = []
+        
+        return dict(adj)
+
+    def _get_execution_order(self, dag: Dict[str, List[str]]) -> List[str]:
+        """
+        Performs a topological sort on the provided DAG to find the execution order.
+        """
+        in_degree = {name: 0 for name in self.nodes}
+        # Calculate in-degrees from the DAG
+        for parent, children in dag.items():
+            for child in children:
+                in_degree[child] += 1
+        
+        queue = [name for name in self.nodes if in_degree[name] == 0]
+        order = []
+        
+        while queue:
+            node = queue.pop(0)
+            order.append(node)
+            for neighbor in dag.get(node, []):
+                in_degree[neighbor] -= 1
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+        
+        if len(order) != len(self.nodes):
+            raise ValueError("Cycle detected in the dependency graph.")
+        return order
+
     def clear_steps(self):
         """Clears all registered nodes from the flow."""
         print(f"--- Clearing {len(self.nodes)} registered nodes from the flow ---")
@@ -159,11 +212,13 @@ class Flow(Generic[D, R]):
         deps.trace.clear()
         
         try:
-            # The execution order is built from the already complete self.nodes
-            execution_order = self._get_execution_order()
+            # 1. First, calculate the graph structure (the DAG).
+            dag = self.get_dag()
+            # 2. Then, calculate a valid execution order from the DAG.
+            execution_order = self._get_execution_order(dag)
             print(f"\nExecution Order: {' -> '.join(execution_order)}\n")
         except (ValueError, KeyError) as e:
-            # ... (error handling) ...
+            # ... (error handling is the same)
             pass
 
         flow_state = self._run_cache if use_cache else {}
@@ -229,9 +284,23 @@ class Flow(Generic[D, R]):
                 self.clear_steps()
                 self.clear_cache()
             raise e
-        
+
+        node_specs=[]
+        for n in list(self.nodes.keys()):
+            try:
+                _n = self.get_node(n)
+                nod_spec = _n.specification.model_dump()
+                node_specs.append(nod_spec)
+            except Exception as e:
+                node_specs.append({n: 'Node spec collection failed. {e}'})
+
+        flow_state['_metadata'] = {
+            'dag': dag,
+            'execution_order': execution_order, 
+            'func_trace': node_specs, 
+            'mermaid': self.to_mermaid()
+        }
         return flow_state
-        # return self.result_type(overview=self.overview, goal=self.goal, flow_results=flow_state)
 
     def to_mermaid(self, orientation: str = "TD") -> str:
         """

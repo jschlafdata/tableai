@@ -96,9 +96,5 @@ class GenericPDFFlowContext(BaseModel):
         
         # 3. Execute the flow with the just-in-time dependencies.
         result = await flow_to_run.run(deps=dependencies)
-        # if inclue_pdf_model:
-        #     result.pdf_model = self._pdf_model
-        
-        # 4. Store the result and return it.
         self.final_result_ = result
         return result, self.flow
