@@ -230,7 +230,8 @@ class Flow(Generic[D, R]):
                 self.clear_cache()
             raise e
         
-        return self.result_type(overview=self.overview, goal=self.goal, flow_results=flow_state)
+        return flow_state
+        # return self.result_type(overview=self.overview, goal=self.goal, flow_results=flow_state)
 
     def to_mermaid(self, orientation: str = "TD") -> str:
         """
