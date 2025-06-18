@@ -4,9 +4,10 @@ from typing import TypeVar, Dict, Any
 R = TypeVar("R", bound="FlowResult")
 
 class FlowResult(BaseModel):
-    overview: str
-    goal: str
-    flow_results: Dict[str, Any] = Field(default_factory=dict)
+    pass
+    # overview: str
+    # goal: str
+    # flow_results: Dict[str, Any] = Field(default_factory=dict)
 
 class FlowResultStage(BaseModel):
     """

@@ -82,7 +82,7 @@ class GenericPDFFlowContext(BaseModel):
     # =============================================================
     # The `run` method now accepts the required runtime arguments.
     # =============================================================
-    async def run(self, pdf_path: str, inclue_pdf_model: bool = True) -> 'FlowResult':
+    async def run(self, pdf_path: str, inclue_pdf_model: bool = True) -> Dict[str, Any]:
         """
         Executes the encapsulated flow for a specific pdf_path.
         """
