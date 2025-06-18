@@ -4,6 +4,7 @@ from dataclasses import is_dataclass
 from tableai.pdf.flows.validations import ValidationRule
 from tableai.pdf.flows.generic_dependencies import D
 
+
 InputT = TypeVar('InputT')
 
 class StepInput(BaseModel, Generic[InputT]):
