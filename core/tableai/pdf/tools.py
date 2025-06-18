@@ -1,192 +1,22 @@
-import itertools
-from collections import defaultdict, UserList
+from collections import defaultdict
 from typing import List, Tuple, Any, Optional, Tuple, Dict, Union, Callable
 import re
-import fnmatch
-import json
-import fitz
 from tableai.pdf.coordinates import (
     Geometry,
     CoordinateMapping
 )
 from typing import Optional, List, Tuple, Union, Dict, Any, Callable, TYPE_CHECKING, TypeVar, Generic, Type
-from pydantic import BaseModel, field_validator, model_validator, ValidationError, Field, create_model, field_serializer
-
-from tableai.pdf.generic_models import (
+from tableai.pdf.generic_results import (
     DefaultQueryResult, 
     GroupbyQueryResult, 
     ResultSet
 )
-
-# Add this new class to your file
-class GroupbyTransform:
-    """A callable object that encapsulates the logic and parameters of a groupby operation."""
-    def __init__(self, *keys, filterby=None, include=None, query_label=None, description=None):
-        self.keys = keys
-        self.group_id_field: str = "group_id"
-        self.filterby = filterby or (lambda g: True)
-        self.include = include if include is not None else ["bbox", "path", "text"]
-        self.query_label = query_label
-        self.description = description or f"Groups data by the following keys: {keys}"
-        
-        # --- Pre-define the mappings here for clarity ---
-        self.AGGREGATE_MAPPING = {
-            "page": "group_page",
-            "block": "group_block",
-            "line": "group_line",
-            "span": "group_span",
-            "font_meta": "group_font_meta",
-            "bbox": "group_bboxes",
-            "x_span": "group_x_spans",
-            "y_span": "group_y_spans",
-            "region": "group_regions",
-            "text": "group_text",
-            "normalized_text": "group_normalized_text",  
-            "normalized_value": "group_normalized_values",
-            "path": "group_paths",
-            "bbox(rel)": "group_bboxes_rel"
-        }
-        self.CONSISTENT_FIELDS = [
-            "page",
-            "index", 
-            "region",
-            "physical_page",
-            "physical_page_bounds",
-            "meta",
-        ]
-
-    def to_dict(self) -> dict:
-        """Creates a human-readable dictionary representation for logging."""
-        return {
-            "type": "groupby",
-            "keys": self.keys,
-            "include": self.include,
-            "filterby": getattr(self.filterby, '__name__', '<lambda>'),
-            "description": self.description
-        }
-
-    def __call__(self, rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """This makes instances of the class callable, just like a function."""
-        # --- The entire logic from your old _transform function goes here ---
-        grouped = defaultdict(list)
-        for row in rows:
-            key_tuple = tuple(row.get(k) for k in self.keys)
-            grouped[key_tuple].append(row)
-            
-        output_summaries = []
-        for group_key, group_rows in grouped.items():
-            if not self.filterby(group_rows):
-                continue
-            
-            first_member = group_rows[0]
-
-            # 3. Create the base summary dictionary with consistent fields
-            summary = {
-                self.group_id_field: group_key,
-                "groupby_keys": self.keys,
-                "member_count": len(group_rows),
-            }
-            if self.query_label:
-                summary['query_label'] = self.query_label
-            
-            # Copy over the consistent fields from the first member of the group
-            for field in self.CONSISTENT_FIELDS:
-                if field in first_member:
-                    summary[field] = first_member[field]
-            
-            # Dynamically add the key-value pairs used for grouping (e.g., summary['region'] = 'header')
-            for i, key_name in enumerate(self.keys):
-                summary[key_name] = group_key[i]
-
-            # 4. Initialize and populate aggregated lists
-            
-            # Initialize lists for all fields that will be aggregated
-            for item_key in self.include:
-                if item_key in self.AGGREGATE_MAPPING:
-                    summary[self.AGGREGATE_MAPPING[item_key]] = []
-                # Special handling for "text"
-                # elif item_key in ["text", "normalized_text"]:
-                #     summary["group_text"] = []
-            
-            # Iterate through rows once to populate the lists
-            for row in group_rows:
-                # # Handle special "text" case
-                # if "text" in self.include and row.get("key") == "text":
-                #     summary["group_text"].append(row.get("value"))
-                # if "normalized_text" in self.include and row.get("key") == "normalized_text":
-                #     summary["group_text"].append(row.get("value"))
-                
-                # Handle standard aggregations
-                for item_key in self.include:
-                    if item_key in self.AGGREGATE_MAPPING and item_key in row:
-                        dest_key = self.AGGREGATE_MAPPING[item_key]
-                        summary[dest_key].append(row[item_key])
-            
-            output_summaries.append(summary)
-            
-        return output_summaries
-
-class QueryParams(BaseModel):
-    """
-    A comprehensive, self-documenting model for all parameters
-    used by the FitzSearchIndex.query method.
-    """
-    class Config:
-        # Pydantic needs this to allow non-serializable types like functions.
-        arbitrary_types_allowed = True
-
-    # --- Basic Filters ---
-    page: Optional[int] = Field(
-        default=None,
-        description="Filter results to a single virtual page number."
-    )
-    line: Optional[int] = Field(
-        default=None,
-        description="Filter results to a single line number within a block."
-    )
-    key: Optional[str] = Field(
-        default=None,
-        description="Filter for rows with this specific key. Common keys are 'text', 'normalized_text', and 'full_width_v_whitespace'."
-    )
-
-    # --- Spatial & Custom Filters ---
-    exclude_bounds: Optional[str] = Field(
-        default=None,
-        description="The string key of a pre-defined boundary set in the FitzSearchIndex's restriction_store. Any row whose bbox overlaps with these zones will be EXCLUDED from the results."
-    )
-    bounds_filter: Optional[Callable[[dict], bool]] = Field(
-        default=None,
-        description="A custom, dynamic filter function (e.g., a lambda) that receives a complete row dictionary and must return True to keep it. This is applied AFTER the 'exclude_bounds' filter, making it ideal for fine-grained spatial logic (e.g., checking x_span, y0_rel, etc.)."
-    )
-
-    groupby: Optional[GroupbyTransform] = Field(
-        default=None,
-        description="A GroupbyTransform object that defines how to group the filtered results."
-    )
-
-    # --- Post-Processing & Metadata ---
-    transform: Optional[Callable[[list], list]] = Field(
-        default=None,
-        description="A function that takes the entire list of filtered results and reshapes it. Primarily used for grouping operations like the `groupby()` transform."
-    )
-    query_label: Optional[str] = Field(
-        default=None,
-        description="An optional label to attach to each result object for tracking and identification purposes."
-    )
-    
-    @field_serializer('groupby', 'transform', 'bounds_filter', when_used='json-unless-none')
-    def serialize_special_types(self, value: Any) -> Any:
-        """Intelligently serializes special types for readable logs."""
-        if isinstance(value, GroupbyTransform):
-            return value.to_dict() # Use our new descriptive method
-        
-        if callable(value):
-            func_name = getattr(value, '__name__', '<lambda>')
-            if hasattr(value, 'func'):
-                func_name = f"partial({getattr(value.func, '__name__', 'unknown')})"
-            return f"<function: {func_name}>"
-            
-        return value
+from tableai.pdf.generic_params import (
+    TextNormalizer, 
+    WhitespaceGenerator, 
+    QueryParams
+)
+from tableai.pdf.pdf_page import VirtualPageManager
 
 class FitzSearchIndex:
     """Improved FitzSearchIndex that leverages VirtualPageManager for coordinate handling."""
@@ -196,9 +26,9 @@ class FitzSearchIndex:
     def __init__(self, 
                  data: List[Tuple[int, str, Any, Dict[str, Any]]], 
                  page_metadata: Optional[Dict[int, Dict[str, Any]]] = None,
-                 vpm: Optional['VirtualPageManager'] = None,
-                 text_normalizer: Optional['TextNormalizer'] = None, 
-                 whitespace_generator: Optional['WhitespaceGenerator'] = None,
+                 vpm: Optional[VirtualPageManager] = None,
+                 text_normalizer: Optional[TextNormalizer] = None, 
+                 whitespace_generator: Optional[WhitespaceGenerator] = None,
                  **kwargs):
         """Initialize with VirtualPageManager for coordinate operations."""
         
@@ -233,9 +63,9 @@ class FitzSearchIndex:
     @classmethod
     def from_pdf_model(
             cls, 
-            pdf_model: 'PDFModel', 
-            text_normalizer: 'TextNormalizer', 
-            whitespace_generator: 'WhitespaceGenerator', 
+            pdf_model, 
+            text_normalizer: TextNormalizer, 
+            whitespace_generator: WhitespaceGenerator, 
             **kwargs
         ):
         """
@@ -448,8 +278,8 @@ class FitzSearchIndex:
 
     # UPDATED: Enhanced query method with VPM-based filtering
     def query(self, 
-              params: Optional['QueryParams'] = None, 
-              **kwargs) -> 'ResultSet':
+              params: Optional[QueryParams] = None, 
+              **kwargs) -> ResultSet:
         """Execute a query with enhanced virtual page filtering capabilities."""
         
         p = params or QueryParams()
@@ -545,63 +375,3 @@ class FitzSearchIndex:
         """Removes a single named restriction from the store."""
         if key in self.restriction_store:
             del self.restriction_store[key]
-
-
-def groupby(*keys, **kwargs) -> GroupbyTransform:
-    """
-    Factory function that creates a self-describing, callable GroupbyTransform object.
-    
-    All arguments (filterby, include, query_label, description) are passed
-    directly to the GroupbyTransform constructor.
-    """
-    return GroupbyTransform(*keys, **kwargs)
-
-
-def regroup_by_key(
-    data: List[Dict[str, Any]], 
-    key: str, 
-    min_count: int,
-    return_list: Optional[bool] = True
-) -> Dict[str, List[Dict[str, Any]]]:
-    """
-    Regroups a list of dictionaries by a specified key and filters for groups of a minimum size.
-
-    This is useful for performing a second-level aggregation on data that has already
-    been processed once.
-
-    Args:
-        data: A list of dictionaries to process (e.g., your 'processed_data').
-        key: The dictionary key to group by (e.g., 'full_text').
-        min_count: The minimum number of items a group must have to be included
-                   in the final result.
-
-    Returns:
-        A dictionary where keys are the unique values from the grouping 'key',
-        and values are lists of the original dictionaries that belong to that group.
-    """
-    # Step 1: Group all items by the specified key.
-    # The defaultdict makes this easy: if a key doesn't exist, it creates a new list for it.
-    groups = defaultdict(list)
-    for item in data:
-        if key in item:
-            group_key = item[key]
-            groups[group_key].append(item)
-
-    # Step 2: Filter the groups, keeping only those with enough members.
-    # A dictionary comprehension is a clean way to build the final result.
-    if return_list:
-        filtered_groups = [
-            items for group_key, items in groups.items()
-            if len(items) >= min_count
-        ]
-        if filtered_groups:
-            return list(itertools.chain(*filtered_groups))
-        else:
-            return []
-    else:
-        # Return a dictionary containing only the groups that meet the min_count
-        return {
-            group_key: items
-            for group_key, items in groups.items()
-            if len(items) >= min_count
-        }
