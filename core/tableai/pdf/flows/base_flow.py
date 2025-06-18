@@ -303,16 +303,24 @@ class Flow(Generic[D, R]):
 
         node_specs=[]
         for n in list(self.nodes.keys()):
-            try:
-                _n = self.get_node(n)
-                nod_spec = _n.specification.model_dump()
-                node_specs.append(nod_spec)
-            except Exception as e:
-                node_specs.append({n: 'Node spec collection failed. {e}'})
+            # try:
+            _n = self.get_node(n)
+            nod_spec = _n.specification
+            node_specs.append(nod_spec)
+            # except Exception as e:
+            #     node_specs.append({n: 'Node spec collection failed. {e}'})
 
         leaf_nodes = [k for k,v in dag.items() if not v]
         if leaf_nodes:
             end_node=leaf_nodes[0]
+
+        all_t=[]
+        for trace in node_specs:
+            traced_func = [x['name'] for x in trace.get('called_functions', [])]
+            for f in traced_func:
+                all_t.append(f)
+
+        print(f"all_t:\n{all_t}")
 
         flow_state['_metadata'] = {
             'dag': dag,

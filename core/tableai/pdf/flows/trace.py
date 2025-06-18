@@ -295,74 +295,74 @@ def _generate_node_specification(
     # === 7. Called Functions Analysis ===
     called_functions_spec = []
     
-    try:
-        tree = ast.parse(source_code)
-        raw_call_names = sorted(list({
-            name for node in ast.walk(tree) 
-            if isinstance(node, ast.Call) and (name := _get_call_name(node))
-        }))
+    # try:
+    tree = ast.parse(source_code)
+    raw_call_names = sorted(list({
+        name for node in ast.walk(tree) 
+        if isinstance(node, ast.Call) and (name := _get_call_name(node))
+    }))
+    
+    # Filter and analyze calls
+    PYTHON_BUILTINS = set(dir(__builtins__))
+    COMMON_METHODS = {'get', 'update', 'append', 'items', 'keys', 'values', 'pop', 'clear'}
+    
+    for name in raw_call_names:
+        # Skip flow step decorators
+        if name.startswith(f"{flow_var_name}.step"): 
+            continue
+            
+        first_part = name.split('.')[0]
+        last_part = name.split('.')[-1]
         
-        # Filter and analyze calls
-        PYTHON_BUILTINS = set(dir(__builtins__))
-        COMMON_METHODS = {'get', 'update', 'append', 'items', 'keys', 'values', 'pop', 'clear'}
+        # Skip builtins and common methods
+        if first_part in PYTHON_BUILTINS or last_part in COMMON_METHODS: 
+            continue
         
-        for name in raw_call_names:
-            # Skip flow step decorators
-            if name.startswith(f"{flow_var_name}.step"): 
-                continue
+        # Try to resolve the callable
+        callable_obj = func.__globals__.get(first_part)
+        
+        if callable_obj:
+            try:
+                # Navigate to the actual callable
+                for attr in name.split('.')[1:]:
+                    callable_obj = getattr(callable_obj, attr)
                 
-            first_part = name.split('.')[0]
-            last_part = name.split('.')[-1]
-            
-            # Skip builtins and common methods
-            if first_part in PYTHON_BUILTINS or last_part in COMMON_METHODS: 
-                continue
-            
-            # Try to resolve the callable
-            callable_obj = func.__globals__.get(first_part)
-            
-            if callable_obj:
-                try:
-                    # Navigate to the actual callable
-                    for attr in name.split('.')[1:]:
-                        callable_obj = getattr(callable_obj, attr)
-                    
-                    # Check if this callable should be ignored
-                    if should_ignore_trace(callable_obj):
-                        continue
-                    
-                    # Get metadata
-                    metadata = _get_callable_metadata(callable_obj)
-                    if metadata:  # Only add if not ignored
-                        called_functions_spec.append({
-                            'type': 'function_call',
-                            **metadata
-                        })
-                        
-                except AttributeError:
-                    # If we can't resolve it and it's not ignored, add as method call
+                # Check if this callable should be ignored
+                if should_ignore_trace(callable_obj):
+                    continue
+                
+                # Get metadata
+                metadata = _get_callable_metadata(callable_obj)
+                if metadata:  # Only add if not ignored
                     called_functions_spec.append({
-                        'name': name,
-                        'type': "method_call",
-                        'docstring': "Method on a local or instance variable.",
-                        'module': None,
-                        'signature': None,
-                        'source_code': None
+                        'type': 'function_call',
+                        **metadata
                     })
-            else:
-                # Unresolved name - add as method call unless it should be ignored
+                    
+            except AttributeError:
+                # If we can't resolve it and it's not ignored, add as method call
                 called_functions_spec.append({
                     'name': name,
-                    'type': "method_call", 
+                    'type': "method_call",
                     'docstring': "Method on a local or instance variable.",
                     'module': None,
                     'signature': None,
                     'source_code': None
                 })
+        else:
+            # Unresolved name - add as method call unless it should be ignored
+            called_functions_spec.append({
+                'name': name,
+                'type': "method_call", 
+                'docstring': "Method on a local or instance variable.",
+                'module': None,
+                'signature': None,
+                'source_code': None
+            })
                 
-    except Exception:
-        # If AST parsing fails, continue with empty called_functions_spec
-        pass
+    # except Exception:
+    #     # If AST parsing fails, continue with empty called_functions_spec
+    #     pass
     
     # === 8. Assemble Final Specification ===
     return {

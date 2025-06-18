@@ -480,7 +480,6 @@ async def main(args):
     print("=============================================")
 
     final_result = await pdf_flow_runner.run(pdf_path=args.pdf_path)
-    print(final_result)
 
 if __name__ == "__main__":
     # This block only runs when you execute the script directly,
