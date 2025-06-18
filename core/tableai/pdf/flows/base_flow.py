@@ -90,12 +90,13 @@ class Flow(Generic[D, R]):
                 self, # The flow instance
                 context
             )
+            print(spec)
 
             self.nodes[node_name] = {
                 "function": func,
                 "context_config": context,
                 "specification": spec,
-                "description": spec.description
+                "description": spec.get('description', '')
             }
             print(f"Registered node '{node_name}' (type: {context.context_type})")
             return func
