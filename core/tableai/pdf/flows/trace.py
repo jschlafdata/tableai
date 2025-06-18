@@ -60,7 +60,8 @@ class NodeSpecification(BaseModel):
 def _generate_node_specification(
     func: Callable,
     flow_instance,
-    context: 'NodeContext'
+    context: 'NodeContext',
+    exclude_modules: set
 ) -> NodeSpecification:
     """The master function that assembles the NodeSpecification from a materialized context."""
     
@@ -131,13 +132,10 @@ def _generate_node_specification(
     annotations = func.__annotations__
     return_type = str(annotations.get('return', 'Any'))
     source_code = dedent(inspect.getsource(func))
-    # --- Call Analysis ---
-    # (Using the helper functions from the previous step)
     tree = ast.parse(source_code)
     raw_call_names = sorted(list({name for node in ast.walk(tree) if isinstance(node, ast.Call) and (name := _get_call_name(node))}))
     
     called_functions_spec = []
-    # (Filtering logic for built-ins and common methods is the same)
     flow_var_name = "flow" # Get this properly as before
     PYTHON_BUILTINS, COMMON_METHODS = set(dir(__builtins__)), {'get', 'update', 'append'}
 
@@ -146,26 +144,27 @@ def _generate_node_specification(
         first_part, last_part = name.split('.')[0], name.split('.')[-1]
         if first_part in PYTHON_BUILTINS or last_part in COMMON_METHODS: continue
         
-        # Try to resolve the name to a live object in the function's globals
         callable_obj = func.__globals__.get(first_part)
         
         if callable_obj:
             try:
-                # Traverse nested attributes (e.g., data.group.chain)
                 for attr in name.split('.')[1:]:
                     callable_obj = getattr(callable_obj, attr)
                 
-                # Get the rich metadata and create the spec object
                 metadata = _get_callable_metadata(callable_obj)
+                
+                # =============================================================
+                # THE CORE FILTERING LOGIC
+                # =============================================================
+                # If the function's module is in our denylist, skip it.
+                if metadata.get('module') in exclude_modules:
+                    continue
+                
                 called_functions_spec.append(CallSpecification(type='function_call', **metadata))
-
             except AttributeError:
-                # Couldn't resolve the full path, treat as a method call
                 called_functions_spec.append(CallSpecification(name=name, type="method_call", docstring="Method on a local or instance variable."))
         else:
-            # Cannot resolve, likely a method on a local variable
              called_functions_spec.append(CallSpecification(name=name, type="method_call", docstring="Method on a local or instance variable."))
-
     # --- Assemble Final Specification ---
     return NodeSpecification(
         name=node_name,

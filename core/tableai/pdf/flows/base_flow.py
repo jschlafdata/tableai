@@ -52,7 +52,16 @@ class Flow(Generic[D, R]):
         def __repr__(self):
             return f"<NodeAccessor for '{self._node_name}'>"
     
-    def __init__(self, deps_type: Type[D], result_type: Type[R], overview: str, goal: str, auto_clear_on_failure: bool = True):
+    def __init__(
+        self, 
+        deps_type: Type[D], 
+        result_type: Type[R], 
+        overview: str, 
+        goal: str, 
+        auto_clear_on_failure: bool = True,
+        # --- NEW PARAMETER ---
+        analysis_exclude_modules: Optional[List[str]] = None
+    ):
         self.deps_type = deps_type
         self.result_type = result_type
         self.overview = overview
@@ -60,6 +69,8 @@ class Flow(Generic[D, R]):
         self.nodes: Dict[str, Dict[str, Any]] = {}
         self._run_cache: Dict[str, Any] = {}
         self.auto_clear_on_failure = auto_clear_on_failure
+        # --- NEW ATTRIBUTE: Convert the list to a set for efficient lookups ---
+        self.analysis_exclude_modules = set(analysis_exclude_modules or [])
 
     # =============================================================
     # The `step` decorator also needs a final simplification
@@ -74,8 +85,13 @@ class Flow(Generic[D, R]):
             if node_name in self.nodes:
                 raise NameError(f"A step with the name '{node_name}' is already registered.")
 
-            # Generate the full specification at registration time.
-            spec = _generate_node_specification(func, self, context)
+            # --- CORE CHANGE: Pass the exclusion list to the generator ---
+            spec = _generate_node_specification(
+                func, 
+                self, # The flow instance
+                context,
+                self.analysis_exclude_modules # The new exclusion list
+            )
 
             self.nodes[node_name] = {
                 "function": func,

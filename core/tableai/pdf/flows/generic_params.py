@@ -10,3 +10,4 @@ class FlowParams(BaseModel):
     result_type: Type[FlowResult]
     overview: str
     goal: str
+    analysis_exclude_modules: Optional[List] = None

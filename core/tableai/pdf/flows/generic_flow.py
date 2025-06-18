@@ -148,7 +148,8 @@ class GenericPDFFlowContext(BaseModel):
                 deps_type=self.flow_params.deps_type,
                 result_type=self.flow_params.result_type,
                 overview=self.flow_params.overview,
-                goal=self.flow_params.goal
+                goal=self.flow_params.goal,
+                analysis_exclude_modules=self.flow_params.analysis_exclude_modules
             )
         return self
 
@@ -195,4 +196,5 @@ class GenericPDFFlowContext(BaseModel):
         result = await flow_to_run.run(deps=dependencies)
         self.final_result_ = result
         report = FlowReportGenerator(flow=self.flow, trace_log=self.trace_logger)
+        # print(f"generate_report: {report.generate_report()}")
         return result, self.flow, report
