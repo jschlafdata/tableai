@@ -157,28 +157,29 @@ class Flow(Generic[D, R]):
         """
         return self.NodeAccessor(self, node_name)
     
-    def _get_execution_order(self) -> List[str]:
-        # This method uses `self.nodes` directly, no materialization needed.
-        adj = defaultdict(list)
+    def _get_execution_order(self, dag: Dict[str, List[str]]) -> List[str]:
+        """
+        Performs a topological sort on the provided DAG to find the execution order.
+        """
         in_degree = {name: 0 for name in self.nodes}
-        for name, config in self.nodes.items():
-            context_config = config['context_config']
-            if context_config.context_type == "dependency" and context_config.wait_for_nodes:
-                for dep_name in context_config.wait_for_nodes:
-                    if dep_name not in self.nodes:
-                        raise ValueError(f"Node '{name}' has an undefined dependency: '{dep_name}'")
-                    adj[dep_name].append(name)
-                    in_degree[name] += 1
+        # Calculate in-degrees from the DAG
+        for parent, children in dag.items():
+            for child in children:
+                in_degree[child] += 1
         
         queue = [name for name in self.nodes if in_degree[name] == 0]
         order = []
+        
         while queue:
             node = queue.pop(0)
             order.append(node)
-            for neighbor in adj[node]:
+            for neighbor in dag.get(node, []):
                 in_degree[neighbor] -= 1
-                if in_degree[neighbor] == 0: queue.append(neighbor)
-        if len(order) != len(self.nodes): raise ValueError("Cycle detected in dependency graph.")
+                if in_degree[neighbor] == 0:
+                    queue.append(neighbor)
+        
+        if len(order) != len(self.nodes):
+            raise ValueError("Cycle detected in the dependency graph.")
         return order
     
     def _prepare_step_input(self, context_config: 'NodeContext', flow_state: Dict[str, Any]) -> 'StepInput':
