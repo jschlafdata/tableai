@@ -101,4 +101,4 @@ class GenericPDFFlowContext(BaseModel):
         
         # 4. Store the result and return it.
         self.final_result_ = result
-        return result
+        return result, self.flow
