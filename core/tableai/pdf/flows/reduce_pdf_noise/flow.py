@@ -32,37 +32,44 @@ ImageProcessingParams = GenericFunctionParams.create_custom_model(
         'IMAGE_ZOOM': { 
             'type': float, 
             'default': 1.0, 
-            'description': "Zoom factor for generated sample images." 
+            'description': "Zoom factor for generated sample images.", 
+            'impact': "MEDIUM",
         },
         'IMAGE_SPACING': { 
             'type': int, 
             'default': 5, 
-            'description': "Spacing in pixels between cropped regions in sample images." 
+            'description': "Spacing in pixels between cropped regions in sample images.",
+            'impact': "LOW",
         },
         'IMAGE_PAGE_LIMIT': { 
             'type': int, 
             'default': 1, 
-            'description': "Maximum virtual page number to include in sample images (0-based, so 1 = first 2 pages)." 
+            'description': "Maximum virtual page number to include in sample images (0-based, so 1 = first 2 pages).",
+            'impact': "LOW", 
         },
         'IMAGE_BOX_WIDTH': { 
             'type': int, 
             'default': 4, 
-            'description': "Width of highlight box outlines in sample images." 
+            'description': "Width of highlight box outlines in sample images.",
+            'impact': "LOW",
         },
         'IMAGE_FONT_SIZE': { 
             'type': int, 
             'default': 16, 
-            'description': "Font size for highlight box labels in sample images." 
+            'description': "Font size for highlight box labels in sample images.",
+            'impact': "LOW",
         },
         'NOISE_BOX_COLOR': { 
             'type': str, 
             'default': 'red', 
-            'description': "Color for noise region highlight boxes." 
+            'description': "Color for noise region highlight boxes.",
+            'impact': "LOW",
         },
         'INVERSE_BOX_COLOR': { 
             'type': str, 
             'default': 'blue', 
-            'description': "Color for inverse (content) region highlight boxes." 
+            'description': "Color for inverse (content) region highlight boxes.",
+            'impact': "LOW", 
         },
     }
 )
@@ -73,21 +80,39 @@ HeaderFooterParams = GenericFunctionParams.create_custom_model(
         'HEADER_BOUND': {
             'type': int,
             'default': 75,
-            'description': "Y-coordinate boundary for the top of a page. Anything with y0_rel < this value is a header candidate."
+            'description': "Y-coordinate boundary for the top of a page. Anything with y0_rel < this value is a header candidate.",
+            'impact': "HIGH",
         },
         'FOOTER_BOUND': {
             'type': int,
             'default': 75,
-            'description': "Boundary from the bottom of a page. Anything with y1_rel > (page_height - this value) is a footer candidate."
+            'description': "Boundary from the bottom of a page. Anything with y1_rel > (page_height - this value) is a footer candidate.",
+            'impact': "HIGH",
         },
         'MIN_OCCURRENCES': {
             'type': int,
             'default': 2,
-            'description': "The minimum number of times a line must appear across all pages to be confirmed as a header/footer."
+            'description': "The minimum number of times a line must appear across all pages to be confirmed as a header/footer.",
+            'impact': "MEDIUM",
         },
-        'BLOCK_GROUP_QUERY_INCLUDED_VALUES': { 'type': list, 'default': ["bbox", "path", "normalized_text", "bbox(rel)"], 'description': "Fields to return from the LineIndex groupby transformation." },
-        'BLOCK_GROUP_QUERY_LABEL': { 'type': str, 'default': 'Header.Footer.Blocks', 'description': "Query label for the initial base line index query returning blocks grouped by line." },
-        'BLOCK_GROUPBY_KEYS': { 'type': list, 'default': ["block"], 'description': "Keys passed to the groupby transform function." },
+        'BLOCK_GROUP_QUERY_INCLUDED_VALUES': { 
+            'type': list, 
+            'default': ["bbox", "path", "normalized_text", "bbox(rel)"], 
+            'description': "Fields to return from the LineIndex groupby transformation.",
+            'impact': "LOW",
+        },
+        'BLOCK_GROUP_QUERY_LABEL': { 
+            'type': str, 
+            'default': 'Header.Footer.Blocks', 
+            'description': "Query label for the initial base line index query returning blocks grouped by line.",
+            'impact': "LOW",
+        },
+        'BLOCK_GROUPBY_KEYS': { 
+            'type': list, 
+            'default': ["block"], 
+            'description': "Keys passed to the groupby transform function.",
+            'impact': "LOW",
+        },
     }
 )
 
@@ -218,8 +243,8 @@ class GenericInput(BaseModel):
 
 HorizontalWhitespaceParams = GenericFunctionParams.create_custom_model(
     "HorizontalWhitespaceParams", {
-        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within." },
-        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace." }
+        'page_number': { 'type': Optional[int], 'default': None, 'description': "Optional page number to search within.", 'impact': "LOW" },
+        'y_tolerance': { 'type': int, 'default': 10, 'description': "Minimum vertical gap to be considered whitespace.", 'impact': "HIGH" }
     }
 )
 @pdf_flow_runner.flow.step(
@@ -294,7 +319,7 @@ def group_vertically_touching_bboxes(
 
 GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
     "GroupTouchingBoxesParams", {
-        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'." }
+        'y_tolerance': { 'type': float, 'default': 2.0, 'description': "Max vertical distance between boxes to be considered 'touching'.", 'impact': "HIGH" }
     }
 )
 @pdf_flow_runner.flow.step(

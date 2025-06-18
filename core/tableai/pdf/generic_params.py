@@ -180,10 +180,11 @@ class GenericFunctionParams(BaseModel):
             field_type = config.get("type", Any)
             default_value = config.get("default", ...)
             description = config.get("description", None)
+            impact = config.get("impact", None)
             
             pydantic_fields[field_name] = (
                 field_type,
-                Field(default=default_value, description=description)
+                Field(default=default_value, description=description, impact=impact)
             )
     
         new_model_class = create_model(

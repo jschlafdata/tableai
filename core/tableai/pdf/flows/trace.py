@@ -97,17 +97,22 @@ def _generate_node_specification(
     input_model_spec = None
     input_model = context.input_model
     if input_model:
-        # Determine if we have the class or an instance of it
-        model_class = input_model if inspect.isclass(input_model) and issubclass(input_model, BaseModel) else type(input_model)
+        model_class = input_model if inspect.isclass(input_model) else type(input_model)
         
         if issubclass(model_class, BaseModel):
             fields_spec = []
             for field_name, field_info in model_class.model_fields.items():
+                # --- CORE CHANGE: Extract the 'impact' metadata ---
+                impact_level = None
+                if field_info.json_schema_extra and isinstance(field_info.json_schema_extra, dict):
+                    impact_level = field_info.json_schema_extra.get('impact')
+
                 fields_spec.append(FieldSpecification(
                     name=field_name,
                     type=str(field_info.annotation),
                     description=field_info.description,
-                    default=field_info.default if field_info.default is not ... else 'REQUIRED'
+                    default=field_info.default if field_info.default is not ... else 'REQUIRED',
+                    impact=impact_level # <-- Store the impact level
                 ))
             input_model_spec = ModelSpecification(
                 name=model_class.__name__,
