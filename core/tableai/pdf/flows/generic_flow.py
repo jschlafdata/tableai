@@ -141,6 +141,7 @@ class GenericPDFFlowContext(BaseModel):
     # The Flow object is created once and held for the lifetime of the runner.
     _flow: Optional['Flow'] = PrivateAttr(default=None)
     _pdf_model: Optional['PDFModel'] = PrivateAttr(default=None)
+    _path: Optional[str] = PrivateAttr(default=None)
 
     # --- Configuration Fields (provided by the user at creation) ---
     flow_params: 'FlowParams'
@@ -186,6 +187,7 @@ class GenericPDFFlowContext(BaseModel):
         provided pdf_path. This is called "just-in-time" by the run method.
         """
         print(f"--- Initializing Dependencies for: {pdf_path} ---")
+        self._path = pdf_path
         self._pdf_model = PDFModel(
             path=pdf_path, 
             text_normalizer=self.text_normalizer,
@@ -217,4 +219,4 @@ class GenericPDFFlowContext(BaseModel):
         report = FlowReportGenerator(flow=self.flow)
         gen = report.generate_report()
         # print(f"generate_report: {report.generate_report()}")
-        return result, self.flow, report
+        return result, self.flow, report, self._path
