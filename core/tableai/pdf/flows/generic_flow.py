@@ -188,7 +188,7 @@ class GenericPDFFlowContext(BaseModel):
         """
         print(f"--- Initializing Dependencies for: {pdf_path} ---")
         self._path = pdf_path
-        self._pdf_model = PDFModel(
+        self._pdf_model = PDFModel.from_path(
             path=pdf_path, 
             text_normalizer=self.text_normalizer,
             whitespace_generator=self.whitespace_generator,
