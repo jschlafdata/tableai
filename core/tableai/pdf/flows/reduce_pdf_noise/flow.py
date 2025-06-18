@@ -6,8 +6,8 @@ from tableai.pdf.query_funcs_wrappers import (
 from tableai.pdf.generic_params import GenericFunctionParams, QueryParams
 from tableai.pdf.flows.generic_flow import GenericPDFFlowContext
 from tableai.pdf.flows.generic_params import FlowParams
-from tableai.pdf.flows.generic_results import FlowResultStage
 from tableai.pdf.generic_results import ResultSet, ChainResult
+from tableai.pdf.flows.generic_results import FlowResultStage
 from tableai.pdf.generic_types import BoundingBoxes, TextBlocks, BBox, BBoxList, GroupFunction
 from tableai.pdf.flows.generic_dependencies import FlowDependencies
 from tableai.pdf.flows.reduce_pdf_noise.result_model import NoiseDetectionResult

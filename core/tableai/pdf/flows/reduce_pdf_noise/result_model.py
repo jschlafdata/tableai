@@ -185,5 +185,5 @@ noise_params = NoiseRegionParams(
         # Inject the pdf_model from the stage for helper methods to work.
         if hasattr(stage, 'pdf_model'):
             instance.pdf_model = stage.pdf_model
-            
+        
         return instance

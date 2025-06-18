@@ -10,6 +10,7 @@ from tableai.pdf.flows.trace_log import EnhancedTraceLog
 from tableai.pdf.flows.base_flow import Flow
 from tableai.pdf.flows.generic_results import FlowResult
 from tableai.pdf.flows.generic_params import FlowParams
+from tableai.pdf.flows.generic_results import FlowResultStage
 
 
 class GenericPDFFlowContext(BaseModel):
