@@ -4,8 +4,133 @@ from dataclasses import dataclass
 import fitz
 from tableai.pdf.generic_types import BBox, BBoxList, Point
 from tableai.pdf.pdf_page import VirtualPageBounds, RegionsByPage
+import fitz  # PyMuPDF
+from pathlib import Path
 
-__all__ = ["Geometry", "CoordinateMapping"]
+__all__ = ["Geometry", "CoordinateMapping", "ManipulateDoc"]
+
+
+class ManipulateDoc:
+    @staticmethod
+    def clip_and_place_pdf_regions(
+        source_pdf: Union[str, Path, bytes, fitz.Document],
+        regions: List[Union[Dict[str, List[float]], List[float], Tuple[float, ...]]],
+        source_page_number: int = 0,
+        layout: str = 'vertical',
+        margin: int = 20,
+        gap: int = 0,
+        center_horizontally: bool = True
+    ) -> Tuple[Dict[str, Any], fitz.Document]:
+        """
+        Clips specified regions from a PDF page and places them onto a single new page
+        using a robust redaction method to ensure no extraneous data is carried over.
+
+        Args:
+            source_pdf: The source PDF, can be a file path, bytes, or fitz.Document.
+            regions: A list of regions to clip, e.g., [{'bbox': [x0, y0, x1, y1]}].
+            source_page_number: The 0-indexed page in the source PDF to clip from.
+            layout: 'vertical' or 'preserve_positions'.
+            margin: Space around the content on the new page.
+            gap: Space between regions in 'vertical' layout.
+            center_horizontally: If True, centers content in 'vertical' layout.
+
+        Returns:
+            A tuple containing:
+            - placement_metadata (dict): Details about the new page and placed items.
+            - new_doc (fitz.Document): The new PDF document object.
+        """
+        if not regions:
+            raise ValueError("No regions provided to clip.")
+
+        # --- 1. Normalize region inputs ---
+        region_rects = []
+        for r in regions:
+            bbox = r.get('bbox') if isinstance(r, dict) else r
+            if bbox and isinstance(bbox, (list, tuple)):
+                region_rects.append(fitz.Rect(bbox))
+        if not region_rects:
+            raise ValueError("Regions list is empty or in an unrecognized format.")
+
+        print(region_rects)
+
+        # --- 2. Load source document and page efficiently ---
+        source_doc_was_opened = False
+        if isinstance(source_pdf, (str, Path, bytes)):
+            source_doc = fitz.open(stream=source_pdf if isinstance(source_pdf, bytes) else None, filename=source_pdf if not isinstance(source_pdf, bytes) else None)
+            source_doc_was_opened = True
+        elif isinstance(source_pdf, fitz.Document):
+            source_doc = source_pdf
+        else:
+            raise TypeError("source_pdf must be a path, bytes, or fitz.Document object.")
+        
+        source_page = source_doc.load_page(source_page_number)
+        page_boundary = source_page.rect
+
+        # --- 3. Calculate new page dimensions ---
+        if layout == 'vertical':
+            max_width = max(r.width for r in region_rects)
+            total_height = sum(r.height for r in region_rects) + gap * (len(region_rects) - 1)
+            page_width = max_width + 2 * margin
+            page_height = total_height + 2 * margin
+        elif layout == 'preserve_positions':
+            overall_bbox = fitz.Rect()
+            for rect in region_rects:
+                overall_bbox.include_rect(rect)
+            page_width = overall_bbox.width + 2 * margin
+            page_height = overall_bbox.height + 2 * margin
+            origin_x, origin_y = overall_bbox.x0, overall_bbox.y0
+        else:
+            raise ValueError(f"Unsupported layout type '{layout}'. Use 'vertical' or 'preserve_positions'.")
+        
+        # --- 4. Create new document and page ---
+        new_doc = fitz.open()
+        new_page = new_doc.new_page(width=page_width, height=page_height)
+        print(page_width)
+        print(f"page_height: {page_height}")
+        placement_metadata = {"page_width": page_width, "page_height": page_height, "layout_used": layout, "placed_items": []}
+        y_cursor = margin
+
+        # --- 5. Process each region using IN-MEMORY redaction ---
+        for i, clip_rect in enumerate(region_rects):
+            # Create an in-memory, temporary document containing just the source page
+            temp_doc = fitz.open()
+            temp_doc.insert_pdf(source_doc, from_page=source_page_number, to_page=source_page_number)
+            temp_page = temp_doc[0]
+
+            # Redact everything *outside* the desired clip_rect
+            # Top rectangle
+            temp_page.add_redact_annot(fitz.Rect(page_boundary.x0, page_boundary.y0, page_boundary.x1, clip_rect.y0), fill=(1,1,1))
+            # Bottom rectangle
+            temp_page.add_redact_annot(fitz.Rect(page_boundary.x0, clip_rect.y1, page_boundary.x1, page_boundary.y1), fill=(1,1,1))
+            # Left rectangle
+            temp_page.add_redact_annot(fitz.Rect(page_boundary.x0, clip_rect.y0, clip_rect.x0, clip_rect.y1), fill=(1,1,1))
+            # Right rectangle
+            temp_page.add_redact_annot(fitz.Rect(clip_rect.x1, clip_rect.y0, page_boundary.x1, clip_rect.y1), fill=(1,1,1))
+
+            # Apply the redactions to truly remove the content
+            temp_page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE) # Keeps original quality
+
+            # Calculate the destination rectangle on the new page
+            if layout == 'vertical':
+                dest_x0 = (page_width - clip_rect.width) / 2 if center_horizontally else margin
+                dest_y0 = y_cursor
+                y_cursor += clip_rect.height + gap
+            elif layout == 'preserve_positions':
+                dest_x0 = (clip_rect.x0 - origin_x) + margin
+                dest_y0 = (clip_rect.y0 - origin_y) + margin
+            
+            dest_rect = fitz.Rect(dest_x0, dest_y0, dest_x0 + clip_rect.width, dest_y0 + clip_rect.height)
+            
+            # Place the content of the redacted temporary page onto the new page
+            new_page.show_pdf_page(dest_rect, temp_doc, 0, clip=clip_rect)
+            
+            temp_doc.close() # Close the in-memory temp doc
+
+            placement_metadata["placed_items"].append({
+                "original_bbox": list(clip_rect), "placed_bbox": list(dest_rect), "source_page": source_page_number
+            })
+        
+        return placement_metadata, new_doc
 
 @dataclass
 class CoordinateMapping:

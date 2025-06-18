@@ -22,7 +22,8 @@ from tableai.pdf.tools import (
 )
 from tableai.pdf.coordinates import (
     Geometry,
-    CoordinateMapping
+    CoordinateMapping, 
+    ManipulateDoc
 )
 from tableai.pdf.pdf_page import VirtualPageManager
 from tableai.pdf.generic_params import (
@@ -64,6 +65,15 @@ class LoadType(str, Enum):
     FULL = "full"
     FIRST = "first"
 
+class DocInputType(str, Enum):
+    PATH = "path"
+    BYTES = "bytes"
+
+@dataclass
+class DocumentInput:
+    input_type: DocInputType = DocInputType.PATH
+
+
 class PDFModel(BaseModel):
     """
     High‑level container that:
@@ -74,7 +84,7 @@ class PDFModel(BaseModel):
     """
 
     # ----------------------- Core public attributes ------------------------ #
-    path: Union[str, Path, bytes, bytearray]
+    path: Optional[Union[str, Path]] = None
     load_type: Optional[LoadType] = LoadType.FULL
     s3_client: Optional[Any] = None
     text_normalizer: Optional[TextNormalizer] = TextNormalizer(
@@ -99,36 +109,78 @@ class PDFModel(BaseModel):
         arbitrary_types_allowed = True
 
     # --------------------------------------------------------------------- #
-    #                     INITIALISATION & METADATA                         #
+    #                  FACTORY CONSTRUCTORS (CLASS METHODS)                 #
+    # --------------------------------------------------------------------- #
+    @classmethod
+    def from_path(
+        cls,
+        path: Union[str, Path],
+        s3_client: Optional[Any] = None,
+        **kwargs: Any
+    ) -> PDFModel:
+        """Creates a PDFModel instance from a file path."""
+        try:
+            # Step 1: Load the document from the path
+            doc = FileReader.pdf(path, s3_client=s3_client)
+            if not isinstance(doc, fitz.Document):
+                raise TypeError(f"FileReader returned {type(doc)}, expected fitz.Document")
+        except Exception as exc:
+            raise ValueError(f"Could not load PDF from path '{path}': {exc}") from exc
+
+        # Step 2: Call the main constructor with the loaded doc and path metadata
+        return cls(doc=doc, path=path, **kwargs)
+
+    @classmethod
+    def from_bytes(
+        cls,
+        pdf_bytes: Union[bytes, bytearray],
+        name: str = "document_from_bytes",
+        **kwargs: Any
+    ) -> PDFModel:
+        """Creates a PDFModel instance from raw bytes."""
+        try:
+            # Step 1: Load the document from bytes
+            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        except Exception as exc:
+            raise ValueError(f"Could not load PDF from bytes: {exc}") from exc
+            
+        # Step 2: Call the main constructor
+        instance = cls(doc=doc, **kwargs)
+        # Manually set the name since there's no path
+        instance.name = name
+        return instance
+
+    # --------------------------------------------------------------------- #
+    #                     VALIDATION & POST-PROCESSING                      #
     # --------------------------------------------------------------------- #
     @model_validator(mode="after")
-    def _initialise_and_index(self) -> "PDFModel":
-        """Load, stitch, index and harvest metadata in a *single* pass."""
-        # 1. Load original multi‑page PDF via project reader
-        try:
-            original_doc = FileReader.pdf(self.path, s3_client=self.s3_client)
-            if not isinstance(original_doc, fitz.Document):
-                raise TypeError(
-                    f"FileReader returned {type(original_doc)}, expected fitz.Document"
-                )
-            if isinstance(self.path, (str, Path)):
-                self.name = Path(self.path).stem
-        except Exception as exc:
-            raise ValueError(f"Could not load PDF: {exc}") from exc
+    def _initialise_and_index(self) -> PDFModel:
+        """
+        Processes the pre-loaded `source_doc` to build the stitched doc,
+        metadata, and search indices. This validator no longer loads files.
+        """
+        # 1. Use the provided source_doc. No file reading happens here.
+        if not isinstance(self.doc, fitz.Document):
+             raise TypeError("`source_doc` must be a valid fitz.Document object.")
 
-        # 2. Build combined document (+ virtual‑page metadata)
-        self.doc, self.virtual_page_metadata = self._combine_pages_and_get_metadata(
-            original_doc=original_doc, 
+        if self.path and not self.name:
+            self.name = Path(self.path).stem
+
+        # 2. Build combined document (+ virtual-page metadata)
+        # This internal helper method is assumed to exist
+        doc, virtual_page_metadata = self._combine_pages_and_get_metadata(
+            original_doc=self.doc,
             load_type=self.load_type
         )
-
-        self.pdf_metadata = PDFMetadata(_doc=original_doc)
+        _doc = doc
         
-        # NEW: Instantiate the VirtualPageManager with the generated metadata
-        if self.virtual_page_metadata:
-            self.vpm = VirtualPageManager(self.virtual_page_metadata)
+        # 3. Harvest metadata and instantiate managers
+        self.pdf_metadata = PDFMetadata(_doc=_doc)
+        
+        if virtual_page_metadata:
+            self.vpm = VirtualPageManager(virtual_page_metadata)
         else:
-            raise ValueError("Failed to generate virtual page metadata.")        
+            raise ValueError("Failed to generate virtual page metadata during stitching.")
 
         self.query_index = FitzSearchIndex.from_pdf_model(self, text_normalizer=self.text_normalizer, whitespace_generator=self.whitespace_generator)
 
@@ -495,6 +547,48 @@ class PDFModel(BaseModel):
             raise ValueError(f"Invalid page number: {page_number}")
         
         return CoordinateMapping.relative_to_absolute(page_relative_bbox, page_bounds)
+    
+    def clip_and_place_pdf_regions(
+            self, 
+            regions: List[Union[Dict[str, List[float]], List[float], Tuple[float, ...]]],
+            page_number: int = 0,
+            layout: str = 'vertical',
+            margin: int = 20,
+            gap: int = 0,
+            center_horizontally: bool = True
+    ):
+        return ManipulateDoc.clip_and_place_pdf_regions(
+            source_pdf=self.doc, 
+            regions=regions,
+            source_page_number=page_number, 
+            layout=layout,
+            margin=margin,
+            gap=gap,
+            center_horizontally=center_horizontally
+        )
+    
+    def img_bbox_to_page_bbox(
+        self,
+        bbox_px: tuple[int, int, int, int],
+        image_dims: tuple[int, int],
+        page_number: int,
+        zoom: float = 2.0
+    ) -> tuple[float, float, float, float]:
+        """
+        Convert a YOLO box expressed in *render-image* pixels back to PDF
+        *page* coordinates.
+
+        `page_to_numpy()` renders with the same `zoom`, so scaling is:
+            pdf_x = px_x * (page_width / img_width)
+            pdf_y = px_y * (page_height / img_height)
+        """
+        x1_px, y1_px, x2_px, y2_px = bbox_px
+        img_w, img_h = image_dims
+
+        page_w, page_h = self.page_sizes[page_number]       # PDF pts
+        sx, sy = page_w / img_w, page_h / img_h
+
+        return (x1_px * sx, y1_px * sy, x2_px * sx, y2_px * sy)
 
     # --------------------------------------------------------------------- #
     #                               ITERATION                               #

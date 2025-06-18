@@ -5,13 +5,37 @@ from tableai.pdf.generic_types import (
     BBox, 
     BBoxList
 )
+import fitz  # PyMuPDF
 from typing import Optional, List,  Dict, Any, Callable, Tuple
 from tableai.pdf.coordinates import (
     Geometry, 
     CoordinateMapping
 )
 
+
 TRACE_IGNORE = False
+
+
+def fitz_doc_to_bytes(
+    doc: fitz.Document,
+    garbage: int = 4,
+    clean: bool = True,
+    deflate: bool = True,
+    linear: bool = False
+) -> bytes:
+    if not isinstance(doc, fitz.Document):
+        raise TypeError("Input must be a valid fitz.Document object.")
+
+    # .tobytes() is the primary method for this. .write() is an alias.
+    pdf_bytes = doc.tobytes(
+        garbage=garbage,
+        clean=clean,
+        deflate=deflate,
+        linear=linear
+    )
+    return pdf_bytes
+
+
 # Field accessor functions that return aggregation functions with type safety
 def merge_all_bboxes(field_name: str) -> GroupFunction:
     """
