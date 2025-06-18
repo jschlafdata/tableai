@@ -15,6 +15,15 @@ from tableai.pdf.pdf_model import PDFModel
 # Local inference - will be updated to return a Pydantic model
 from inference import DetectronTableDetector, DetectronDetectionResult, PageDimensions
 
+import PIL.Image
+# Check if the old constants are missing (i.e., we are on Pillow >= 10.0.0)
+if not hasattr(PIL.Image, 'LINEAR'):
+    print("-> Monkey-patching PIL.Image for Pillow v10.0.0+ compatibility with older libraries.")
+    # Add the old constants back, pointing to the new Resampling enum
+    PIL.Image.LINEAR = PIL.Image.Resampling.BILINEAR # LINEAR is an alias for BILINEAR
+    PIL.Image.CUBIC = PIL.Image.Resampling.BICUBIC
+    PIL.Image.NEAREST = PIL.Image.Resampling.NEAREST
+
 # ────────────────────────────────────────────────────────────────
 # FastAPI setup
 # ────────────────────────────────────────────────────────────────

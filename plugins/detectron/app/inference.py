@@ -7,7 +7,7 @@ from typing import Dict, List, Tuple, Optional, Any
 
 import layoutparser as lp
 import numpy as np
-from pydantic import BaseModel
+from pydantic import BaseModel, field_serializer
 
 # Assuming your refactored PDFModel is available
 from tableai.pdf.pdf_model import PDFModel
@@ -20,8 +20,15 @@ class DetectronDetectionResult(BaseModel):
     primary_coordinates: Dict[int, List[BoundingBox]]
     metadata: Dict[int, DetectionMetadata]
     page_dimensions: Dict[int, PageDimensions]
-    model_results: Dict[int, Any]
-    class Config: arbitrary_types_allowed = True
+    model_results: Dict[int, lp.Layout] # Keep the original type hint
+
+    # This custom serializer tells Pydantic what to do when it encounters a `lp.Layout` object
+    @field_serializer('model_results')
+    def serialize_layout_results(self, layouts: Dict[int, lp.Layout]) -> Dict[int, Dict]:
+        return {page: layout.to_dict() for page, layout in layouts.items()}
+
+    class Config:
+        arbitrary_types_allowed = True
 # --- End Pydantic models ---
 
 class DetectronTableDetector:
@@ -35,7 +42,6 @@ class DetectronTableDetector:
         "PrimaLayout": {"lp_uri": "lp://PrimaLayout/mask_rcnn_R_50_FPN_3x/config", "label_map": {1: "TextRegion", 2: "ImageRegion", 3: "TableRegion", 4: "MathsRegion", 5: "SeparatorRegion", 6: "OtherRegion"}},
     }
 
-    # --- THIS IS THE KEY CHANGE ---
     def __init__(self, dataset: str = "PubLayNet", extra_config_opts: Optional[Dict[str, Any]] = None):
         """
         Initializes the detector with dynamic configuration.
@@ -43,7 +49,7 @@ class DetectronTableDetector:
         Args:
             dataset: The name of the dataset model to load.
             extra_config_opts: A dictionary of Detectron2 configuration options to override.
-                               e.g., {"MODEL.ROI_HEADS.SCORE_THRESH_TEST": 0.7, "MODEL.DEVICE": "cpu"}
+                            e.g., {"MODEL.ROI_HEADS.SCORE_THRESH_TEST": 0.7, "MODEL.DEVICE": "cpu"}
         """
         if dataset not in self._DATASET_CONFIGS:
             raise ValueError(f"Unknown dataset '{dataset}'. Must be one of: {list(self._DATASET_CONFIGS.keys())}")
@@ -71,6 +77,7 @@ class DetectronTableDetector:
             label_map=cfg["label_map"],
         )
         print(f"✓ Detectron model '{dataset}' loaded with config: {config_dict}")
+
 
 
     # ... The rest of the class methods (_get_default_selector, _detect_on_page, run, run_on_image)

@@ -36,6 +36,19 @@ WORKDIR /app
 # 2) Upgrade pip early so that "+cpu" wheels are recognized
 RUN python3 -m pip install --upgrade pip setuptools wheel
 
+# 7) Install (or force-reinstall) tableai with the detectroncpu extra
+RUN python3 -m pip install --no-cache-dir \
+    ${TABLEAI_BUILD:+--force-reinstall} \
+    "git+https://github.com/jschlafdata/tableai.git@dev0.0.1#egg=tableai[detectroncpu]"
+
+RUN python3 -m pip uninstall -y numpy pandas && \
+    python3 -m pip install --no-cache-dir \
+        numpy==1.23.5 \
+        pandas==2.0.3 \
+        ipython==8.33.0 \
+        dateparser==1.2.1 \
+        python-multipart==0.0.20
+
 # 3) Install CPU-only PyTorch 1.13.1 and torchvision 0.14.1
 RUN python3 -m pip install --no-cache-dir \
         torch==1.13.1+cpu \
@@ -48,24 +61,10 @@ RUN python3 -m pip install --no-cache-dir \
         Pillow==9.5.0 \
         pycocotools==2.0.6
 
-# 5) Replace numpy & pandas with the required versions
-RUN python3 -m pip uninstall -y numpy pandas && \
-    python3 -m pip install --no-cache-dir \
-        numpy==1.23.5 \
-        pandas==2.0.3 \
-        ipython==8.33.0 \
-        dateparser==1.2.1 \
-        python-multipart==0.0.20
-
 # 6) Install cloudpickle and omegaconf
 RUN python3 -m pip install --no-cache-dir \
         cloudpickle==2.2.0 \
         omegaconf==2.3.0
-
-# 7) Install (or force-reinstall) tableai with the detectroncpu extra
-RUN python3 -m pip install --no-cache-dir \
-    ${TABLEAI_BUILD:+--force-reinstall} \
-    "git+https://github.com/jschlafdata/tableai.git@dev0.0.1#egg=tableai[detectroncpu]"
 
 # 8) Build & install Detectron2 v0.4 in CPU mode
 #    (PIP_NO_BUILD_ISOLATION=1 is required for Detectron2’s custom build)

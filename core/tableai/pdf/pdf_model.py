@@ -168,11 +168,11 @@ class PDFModel(BaseModel):
 
         # 2. Build combined document (+ virtual-page metadata)
         # This internal helper method is assumed to exist
-        doc, virtual_page_metadata = self._combine_pages_and_get_metadata(
+        self.doc, virtual_page_metadata = self._combine_pages_and_get_metadata(
             original_doc=self.doc,
             load_type=self.load_type
         )
-        _doc = doc
+        _doc = self.doc
         
         # 3. Harvest metadata and instantiate managers
         self.pdf_metadata = PDFMetadata(_doc=_doc)
