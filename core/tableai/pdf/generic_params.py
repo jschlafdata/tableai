@@ -140,14 +140,15 @@ class WhitespaceGenerator:
             "min_gap": self.min_gap,
             "description": self.description
         }
-    
 
+TRACE_IGNORE=True
 class GenericFunctionParams(BaseModel):
     """
     A base model for query parameters. All dynamically created parameter
     models will inherit from this class. You can place truly universal
     parameters here.
     """
+    __trace_ignore__ = TRACE_IGNORE
     # Example of a truly universal parameter that all models will inherit
     query_label: Optional[str] = Field(
         default=None,
@@ -174,6 +175,7 @@ class GenericFunctionParams(BaseModel):
             Either the model class or an instance of it
         """
         # Create the model class (same as before)
+        __trace_ignore__ = TRACE_IGNORE
         pydantic_fields: Dict[str, Any] = {}
         
         for field_name, config in custom_fields.items():

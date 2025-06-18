@@ -8,6 +8,8 @@ import json
 from tableai.pdf.flows.generic_context import NodeContext, RunContext
 from tableai.pdf.flows.trace_log import _serialize_safely
 
+TRACE_IGNORE = True
+
 class FieldSpecification(BaseModel):
     """Describes a single field within a Pydantic model."""
     name: str
@@ -61,10 +63,10 @@ def _generate_node_specification(
     func: Callable,
     flow_instance,
     context: 'NodeContext',
-    exclude_modules: set
 ) -> NodeSpecification:
     """The master function that assembles the NodeSpecification from a materialized context."""
     
+    __trace_ignore__ = TRACE_IGNORE
     # --- 1. Basic Info ---
     node_name = func.__name__
     description = context.description if hasattr(context, 'description') and context.description else dedent(func.__doc__ or f"No description for {node_name}.").strip()
@@ -136,7 +138,8 @@ def _generate_node_specification(
     raw_call_names = sorted(list({name for node in ast.walk(tree) if isinstance(node, ast.Call) and (name := _get_call_name(node))}))
     
     called_functions_spec = []
-    flow_var_name = "flow" # Get this properly as before
+    # (Filtering for built-ins and common methods is the same)
+    flow_var_name = "flow" 
     PYTHON_BUILTINS, COMMON_METHODS = set(dir(__builtins__)), {'get', 'update', 'append'}
 
     for name in raw_call_names:
@@ -144,6 +147,7 @@ def _generate_node_specification(
         first_part, last_part = name.split('.')[0], name.split('.')[-1]
         if first_part in PYTHON_BUILTINS or last_part in COMMON_METHODS: continue
         
+        # Try to resolve the name to a live object
         callable_obj = func.__globals__.get(first_part)
         
         if callable_obj:
@@ -151,20 +155,21 @@ def _generate_node_specification(
                 for attr in name.split('.')[1:]:
                     callable_obj = getattr(callable_obj, attr)
                 
+                # =============================================================
+                # THE FINAL, ELEGANT FILTERING LOGIC
+                # =============================================================
+                # Check for the magic `__trace_ignore__` flag on the function.
+                if getattr(callable_obj, '__trace_ignore__', False):
+                    continue # Skip this framework-internal call
+
                 metadata = _get_callable_metadata(callable_obj)
-                
-                # =============================================================
-                # THE CORE FILTERING LOGIC
-                # =============================================================
-                # If the function's module is in our denylist, skip it.
-                if metadata.get('module') in exclude_modules:
-                    continue
-                
                 called_functions_spec.append(CallSpecification(type='function_call', **metadata))
+
             except AttributeError:
                 called_functions_spec.append(CallSpecification(name=name, type="method_call", docstring="Method on a local or instance variable."))
         else:
              called_functions_spec.append(CallSpecification(name=name, type="method_call", docstring="Method on a local or instance variable."))
+    
     # --- Assemble Final Specification ---
     return NodeSpecification(
         name=node_name,
@@ -227,6 +232,7 @@ async def trace_call(ctx: 'RunContext', target_object: Any, method_name: str, **
     Traces and executes a method call, recording the details via the context's
     injected recorder. This is the new way nodes will trace calls.
     """
+    __trace_ignore__ = TRACE_IGNORE
     ctx._record_sub_call({
         "target": type(target_object).__name__,
         "method": method_name,

@@ -123,12 +123,7 @@ pdf_flow_runner = GenericPDFFlowContext(
         deps_type=FlowDependencies,
         result_type=NoiseDetectionResult,
         overview="Detects and removes recurring noise regions...",
-        goal="To produce a clean list of 'content' regions.",
-        analysis_exclude_modules=[
-            'tableai.pdf.flows.base_flow',
-            'tableai.pdf.flows.trace',
-            'tableai.pdf.flows.generic_context'
-        ]
+        goal="To produce a clean list of 'content' regions."
     ),
 )
 

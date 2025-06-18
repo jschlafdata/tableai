@@ -11,6 +11,8 @@ from tableai.pdf.flows.generic_dependencies import D
 from tableai.pdf.flows.generic_context import NodeContext, RunContext, StepInput
 from tableai.pdf.flows.trace import NodeSpecification
 
+TRACE_IGNORE = True
+
 class Flow(Generic[D, R]):
     """
     A graph-based flow executor using unified NodeContext for all step configurations.
@@ -59,8 +61,6 @@ class Flow(Generic[D, R]):
         overview: str, 
         goal: str, 
         auto_clear_on_failure: bool = True,
-        # --- NEW PARAMETER ---
-        analysis_exclude_modules: Optional[List[str]] = None
     ):
         self.deps_type = deps_type
         self.result_type = result_type
@@ -69,8 +69,7 @@ class Flow(Generic[D, R]):
         self.nodes: Dict[str, Dict[str, Any]] = {}
         self._run_cache: Dict[str, Any] = {}
         self.auto_clear_on_failure = auto_clear_on_failure
-        # --- NEW ATTRIBUTE: Convert the list to a set for efficient lookups ---
-        self.analysis_exclude_modules = set(analysis_exclude_modules or [])
+        __trace_ignore__ = TRACE_IGNORE
 
     # =============================================================
     # The `step` decorator also needs a final simplification
@@ -89,8 +88,7 @@ class Flow(Generic[D, R]):
             spec = _generate_node_specification(
                 func, 
                 self, # The flow instance
-                context,
-                self.analysis_exclude_modules # The new exclusion list
+                context
             )
 
             self.nodes[node_name] = {

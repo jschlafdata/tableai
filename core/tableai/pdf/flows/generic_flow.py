@@ -148,8 +148,7 @@ class GenericPDFFlowContext(BaseModel):
                 deps_type=self.flow_params.deps_type,
                 result_type=self.flow_params.result_type,
                 overview=self.flow_params.overview,
-                goal=self.flow_params.goal,
-                analysis_exclude_modules=self.flow_params.analysis_exclude_modules
+                goal=self.flow_params.goal
             )
         return self
 
@@ -191,7 +190,7 @@ class GenericPDFFlowContext(BaseModel):
         
         # 2. Get the flow to run from our internal state.
         flow_to_run = self.flow
-                
+        
         # 3. Execute the flow with the just-in-time dependencies.
         result = await flow_to_run.run(deps=dependencies)
         self.final_result_ = result
