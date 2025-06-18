@@ -14,6 +14,7 @@ class FieldSpecification(BaseModel):
     type: str
     description: Optional[str] = None
     default: Any = 'REQUIRED'
+    impact: Optional[str] = None
 
 class ModelSpecification(BaseModel):
     """Describes a Pydantic model used as an input_model."""
