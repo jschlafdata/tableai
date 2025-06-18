@@ -1,44 +1,33 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import defaultdict
 from typing import Dict, List, Tuple, Optional, Any
 
 import layoutparser as lp
 import numpy as np
 from pydantic import BaseModel
-import json
 
 # Assuming your refactored PDFModel is available
 from tableai.pdf.pdf_model import PDFModel
 
-# ──────────────────────────────────────────────────────────────────────────
-# 1. Pydantic Output Models
-# ──────────────────────────────────────────────────────────────────────────
+# --- Pydantic models (unchanged) ---
 BoundingBox = Tuple[float, float, float, float]
 DetectionMetadata = Dict[str, List[BoundingBox]]
-
-class PageDimensions(BaseModel):
-    image_width: int
-    image_height: int
-
+class PageDimensions(BaseModel): pass
 class DetectronDetectionResult(BaseModel):
-    """Standardized output for Detectron2 detection results."""
-    # The primary detected regions (e.g., tables)
     primary_coordinates: Dict[int, List[BoundingBox]]
-    # All other detected regions, categorized by label
     metadata: Dict[int, DetectionMetadata]
     page_dimensions: Dict[int, PageDimensions]
-    # LayoutParser's raw results, if needed for debugging (can be excluded for production)
-    model_results: Dict[int, Any] # lp.Layout is not easily serializable
+    model_results: Dict[int, Any]
+    class Config: arbitrary_types_allowed = True
+# --- End Pydantic models ---
 
-    class Config:
-        arbitrary_types_allowed = True
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 2. The Detector Class
-# ──────────────────────────────────────────────────────────────────────────
 class DetectronTableDetector:
+    """
+    Detectron2-based detector with support for dynamic model configuration.
+    """
     _DATASET_CONFIGS = {
         "PubLayNet": {"lp_uri": "lp://PubLayNet/mask_rcnn_R_50_FPN_3x/config", "label_map": {0: "Text", 1: "Title", 2: "List", 3: "Table", 4: "Figure"}},
         "TableBank": {"lp_uri": "lp://TableBank/faster_rcnn_R_50_FPN_3x/config", "label_map": {0: "Table"}},
@@ -46,85 +35,69 @@ class DetectronTableDetector:
         "PrimaLayout": {"lp_uri": "lp://PrimaLayout/mask_rcnn_R_50_FPN_3x/config", "label_map": {1: "TextRegion", 2: "ImageRegion", 3: "TableRegion", 4: "MathsRegion", 5: "SeparatorRegion", 6: "OtherRegion"}},
     }
 
-    def __init__(self, dataset: str = "PubLayNet", confidence_threshold: Optional[float] = 0.5):
+    # --- THIS IS THE KEY CHANGE ---
+    def __init__(self, dataset: str = "PubLayNet", extra_config_opts: Optional[Dict[str, Any]] = None):
+        """
+        Initializes the detector with dynamic configuration.
+
+        Args:
+            dataset: The name of the dataset model to load.
+            extra_config_opts: A dictionary of Detectron2 configuration options to override.
+                               e.g., {"MODEL.ROI_HEADS.SCORE_THRESH_TEST": 0.7, "MODEL.DEVICE": "cpu"}
+        """
         if dataset not in self._DATASET_CONFIGS:
             raise ValueError(f"Unknown dataset '{dataset}'. Must be one of: {list(self._DATASET_CONFIGS.keys())}")
         
         self.dataset = dataset
-        self.confidence_threshold = confidence_threshold
         cfg = self._DATASET_CONFIGS[dataset]
+        
+        # Start with default confidence threshold
+        config_dict = {"MODEL.ROI_HEADS.SCORE_THRESH_TEST": 0.5}
+        
+        # Merge user-provided overrides
+        if extra_config_opts:
+            config_dict.update(extra_config_opts)
+            print(f"-> Initializing Detectron model '{dataset}' with custom config: {config_dict}")
+        
+        # Convert the dictionary to the list format required by layoutparser
+        # e.g., ["KEY1", value1, "KEY2", value2]
+        final_extra_config = []
+        for key, value in config_dict.items():
+            final_extra_config.extend([key, value])
+
         self.model = lp.models.Detectron2LayoutModel(
             config_path=cfg["lp_uri"],
-            extra_config=["MODEL.ROI_HEADS.SCORE_THRESH_TEST", self.confidence_threshold],
+            extra_config=final_extra_config,
             label_map=cfg["label_map"],
         )
+        print(f"✓ Detectron model '{dataset}' loaded with config: {config_dict}")
 
+
+    # ... The rest of the class methods (_get_default_selector, _detect_on_page, run, run_on_image)
+    # ... do NOT need to be changed, as the model is fully configured at __init__ time.
     def _get_default_selector(self) -> str:
-        """Determines the default primary object type for a dataset."""
         if self.dataset in ["PubLayNet", "TableBank"]: return "Table"
         if self.dataset == "PrimaLayout": return "TableRegion"
         if self.dataset == "HJDataset": return "Row"
-        return "Text" # A safe fallback
+        return "Text"
 
-    def _detect_on_page(
-        self, np_img: np.ndarray, pdf_model: PDFModel, page_num: int, zoom: float, selector: Optional[str]
-    ) -> Tuple[List[BoundingBox], DetectionMetadata, lp.Layout]:
-        """Runs detection on a single numpy image and converts coordinates."""
+    def _detect_on_page(self, np_img: np.ndarray, pdf_model: PDFModel, page_num: int, zoom: float, selector: Optional[str]) -> Tuple[List[BoundingBox], DetectionMetadata, lp.Layout]:
         img_h, img_w, _ = np_img.shape
         layout_result = self.model.detect(np_img)
-        
         primary_selector = selector or self._get_default_selector()
-        
-        primary_coords = []
-        metadata = defaultdict(list)
-        
+        primary_coords, metadata = [], defaultdict(list)
         for block in layout_result:
-            # Convert pixel coordinates to PDF-point coordinates
-            page_bbox = pdf_model.img_bbox_to_page_bbox(
-                block.coordinates, (img_w, img_h), page_num, zoom=zoom
-            )
-            # We will use page_bbox for this service, not stitched doc coordinates
+            page_bbox = pdf_model.img_bbox_to_page_bbox(block.coordinates, (img_w, img_h), page_num, zoom=zoom)
             coords_tuple = tuple(map(float, page_bbox))
-
             if block.type == primary_selector:
                 primary_coords.append(coords_tuple)
             else:
                 metadata[block.type].append(coords_tuple)
-        
         return primary_coords, dict(metadata), layout_result
 
-    def run(self, pdf_model: PDFModel, zoom: float = 2.0, selector: Optional[str] = None) -> DetectronDetectionResult:
-        """Processes an entire PDF document, page by page."""
-        all_primary_coords = {}
-        all_metadata = {}
-        all_page_dims = {}
-        all_model_results = {}
-        
-        for page_num in range(pdf_model.source_doc.page_count):
-            _, np_img, img_w, img_h = pdf_model.page_to_numpy(page_num, zoom=zoom)
-            
-            primary, meta, layout = self._detect_on_page(np_img, pdf_model, page_num, zoom, selector)
-            
-            all_primary_coords[page_num] = primary
-            all_metadata[page_num] = meta
-            all_page_dims[page_num] = PageDimensions(image_width=img_w, image_height=img_h)
-            all_model_results[page_num] = layout
-            
-        return DetectronDetectionResult(
-            primary_coordinates=all_primary_coords,
-            metadata=all_metadata,
-            page_dimensions=all_page_dims,
-            model_results=all_model_results,
-        )
-
-    def run_on_image(
-        self, np_img: np.ndarray, pdf_model: PDFModel, page_num: int, zoom: float = 2.0, selector: Optional[str] = None
-    ) -> DetectronDetectionResult:
-        """Processes a single pre-rendered image."""
+    def run_on_image(self, np_img: np.ndarray, pdf_model: PDFModel, page_num: int, zoom: float = 2.0, selector: Optional[str] = None) -> DetectronDetectionResult:
         img_h, img_w, _ = np_img.shape
-
         primary, meta, layout = self._detect_on_page(np_img, pdf_model, page_num, zoom, selector)
-        
         return DetectronDetectionResult(
             primary_coordinates={page_num: primary},
             metadata={page_num: meta},

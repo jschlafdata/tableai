@@ -7,6 +7,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, UploadFile, HTTPException, Form, File
 from pydantic import BaseModel
+import hashlib
 
 # Assuming your refactored PDFModel is available
 from tableai.pdf.pdf_model import PDFModel
@@ -41,15 +42,21 @@ class HealthResponse(BaseModel):
     cached_models: List[str]
     supported_datasets: List[str]
 
-# ────────────────────────────────────────────────────────────────
-# Utility Helpers
-# ────────────────────────────────────────────────────────────────
-def _get_detector(dataset: str, confidence: Optional[float] = None) -> DetectronTableDetector:
-    """Returns a cached DetectronTableDetector instance."""
-    # Create a unique key for the cache based on dataset and confidence
-    cache_key = f"{dataset}_{confidence or 0.5}"
+def _get_detector(dataset: str, config_opts: Optional[Dict[str, Any]] = None) -> DetectronTableDetector:
+    """
+    Returns a cached DetectronTableDetector instance. A new instance is created
+    if no detector with the exact same dataset and config options exists.
+    """
+    # Create a unique signature for this configuration
+    config_str = json.dumps(config_opts, sort_keys=True) if config_opts else "{}"
+    cache_key = f"{dataset}_{hashlib.sha256(config_str.encode()).hexdigest()[:8]}"
+
     if cache_key not in _detector_cache:
-        _detector_cache[cache_key] = DetectronTableDetector(dataset=dataset, confidence_threshold=confidence)
+        print(f"-> No cached model found for key '{cache_key}'. Creating new instance.")
+        _detector_cache[cache_key] = DetectronTableDetector(
+            dataset=dataset,
+            extra_config_opts=config_opts
+        )
     return _detector_cache[cache_key]
 
 # ────────────────────────────────────────────────────────────────
@@ -66,34 +73,39 @@ def health():
     )
 
 
-# ─────────────────── NEW PNG ENDPOINT ───────────────────────
+# ─────────────────── CLEANED UP ENDPOINT ───────────────────────
 @app.post(
     "/detect/png",
-    response_model=Union[DetectronDetectionResult, ErrorResponse],
+    response_model=Union[DetectronDetectionResult, ErrorResponse], # Assuming ErrorResponse is your error model
     tags=["Detection"]
 )
 async def detect_png(
     image_file: UploadFile = File(..., description="PNG image of a single document page."),
     pdf_file: UploadFile = File(..., description="The original PDF file for coordinate mapping."),
     page_num: int = Form(..., description="The 0-indexed page number the image corresponds to."),
-    zoom: float = Form(2.0, description="The zoom factor used to generate the image."),
     dataset: str = Form("PubLayNet", description="Which Detectron2 model to use."),
-    selector: Optional[str] = Form(None, description="The block type to treat as the primary detection target (e.g., 'Table')."),
-    confidence_threshold: Optional[float] = Form(None, description="Override the model's default confidence threshold."),
+    zoom: float = Form(2.0, description="The zoom factor used to generate the image."),
+    selector: Optional[str] = Form(None, description="The block type to treat as the primary detection target."),
+    model_overrides: Optional[str] = Form(None, description="JSON string of Detectron2 config options (e.g., '{\"MODEL.ROI_HEADS.SCORE_THRESH_TEST\": 0.7}')."),
 ):
     """
-    Detects layout regions in a single page image (PNG) using Detectron2.
+    Detects layout regions in a single page image using Detectron2,
+    dynamically configured via `model_overrides`.
     """
+    config_dict = None
     try:
+        # Validate JSON early
+        if model_overrides:
+            config_dict = json.loads(model_overrides)
+
         if pdf_file.content_type != "application/pdf":
             raise HTTPException(status_code=400, detail="Uploaded 'pdf_file' must be a PDF.")
 
         pdf_bytes = await pdf_file.read()
-        # Use the from_bytes factory method for flexibility
         pdf_model = PDFModel.from_bytes(pdf_bytes, name=pdf_file.filename)
 
-        if not (0 <= page_num < pdf_model.source_doc.page_count):
-            raise HTTPException(status_code=400, detail=f"Invalid page_num {page_num}. PDF has {pdf_model.source_doc.page_count} pages.")
+        if not (0 <= page_num < pdf_model.doc.page_count):
+            raise HTTPException(status_code=400, detail=f"Invalid page_num {page_num}. PDF has {pdf_model.doc.page_count} pages.")
 
         image_bytes = await image_file.read()
         np_arr = np.frombuffer(image_bytes, np.uint8)
@@ -101,9 +113,9 @@ async def detect_png(
         if np_img is None:
             raise HTTPException(status_code=400, detail="Could not decode the uploaded image file.")
 
-        detector = _get_detector(dataset=dataset, confidence=confidence_threshold)
+        # Get a detector instance for this specific configuration
+        detector = _get_detector(dataset=dataset, config_opts=config_dict)
 
-        # Use the new run_on_image method
         result = detector.run_on_image(
             np_img=np_img,
             pdf_model=pdf_model,
@@ -113,8 +125,9 @@ async def detect_png(
         )
         return result
 
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON format in model_overrides.")
     except HTTPException as http_exc:
-        # Re-raise HTTPExceptions to let FastAPI handle them
         raise http_exc
     except Exception as exc:
         return ErrorResponse(
