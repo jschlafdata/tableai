@@ -133,7 +133,7 @@ def _generate_node_specification(
     Fixed version of your _generate_node_specification that properly handles trace ignore flags.
     """
     
-    __trace_ignore__ = True  # This function itself should be ignored
+    __trace_ignore__ = False  # This function itself should be ignored
     
     # --- 1. Basic Info ---
     node_name = func.__name__
@@ -273,39 +273,19 @@ def _generate_node_specification(
                     'type': 'function_call',
                     **metadata
                 })
-                    
-            # except AttributeError:
-            #     # Can't resolve - add as method call (but could also be ignored)
-            #     called_functions_spec.append({
-            #         'name': name,
-            #         'type': "method_call",
-            #         'docstring': "Method on a local or instance variable.",
-            #         'module': None,
-            #         'signature': None,
-            #         'source_code': None
-            #     })
-        # else:
-        #     # Unresolved name - add as method call
-        #     called_functions_spec.append({
-        #         'name': name,
-        #         'type': "method_call",
-        #         'docstring': "Method on a local or instance variable.",
-        #         'module': None,
-        #         'signature': None,
-        #         'source_code': None
-        #     })
-    
+
     # --- Assemble Final Specification ---
-    return {
-        'name': node_name,
-        'description': description,
-        'decorator_declaration': decorator_repr,
-        'input_model_spec': input_model_spec,
-        'current_params': current_params,
-        'return_type': return_type,
-        'source_code': source_code,
-        'called_functions': called_functions_spec
-    }
+    return NodeSpecification(
+        name=node_name,
+        description=description,
+        dependencies=context.wait_for_nodes or [],
+        decorator_declaration=decorator_repr,
+        input_model_spec=input_model_spec,
+        current_params=current_params,
+        return_type=return_type,
+        source_code=source_code,
+        called_functions=called_functions_spec
+    )
 
 def _get_call_name(node: ast.Call) -> Optional[str]:
     """Extract the call name from an AST Call node."""
@@ -360,7 +340,7 @@ async def trace_call(ctx: 'RunContext', target_object: Any, method_name: str, **
     Traces and executes a method call, recording the details via the context's
     injected recorder. This is the new way nodes will trace calls.
     """
-    __trace_ignore__ = TRACE_IGNORE
+    __trace_ignore__ = True
     ctx._record_sub_call({
         "target": type(target_object).__name__,
         "method": method_name,

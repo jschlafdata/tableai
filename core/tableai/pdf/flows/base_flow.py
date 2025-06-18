@@ -79,6 +79,7 @@ class Flow(Generic[D, R]):
         object and generates the node's specification immediately.
         """
         def decorator(func: Callable) -> Callable:
+            # __trace_ignore__=True
             node_name = func.__name__
             if node_name in self.nodes:
                 raise NameError(f"A step with the name '{node_name}' is already registered.")
@@ -95,7 +96,7 @@ class Flow(Generic[D, R]):
                 "function": func,
                 "context_config": context,
                 "specification": spec,
-                "description": spec.get('description', '')
+                "description": spec.description
             }
             print(f"Registered node '{node_name}' (type: {context.context_type})")
             return func
@@ -315,7 +316,11 @@ class Flow(Generic[D, R]):
 
         all_t=[]
         for trace in node_specs:
-            traced_func = [x['name'] for x in trace.get('called_functions', [])]
+            trace_name = trace.name
+            decorator_declaration=trace.decorator_declaration
+            all_t.append(trace_name)
+            all_t.append(decorator_declaration)
+            traced_func = [x.name for x in trace.called_functions]
             for f in traced_func:
                 all_t.append(f)
 

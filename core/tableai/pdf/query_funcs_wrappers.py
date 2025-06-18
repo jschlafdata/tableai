@@ -11,6 +11,7 @@ from tableai.pdf.coordinates import (
     CoordinateMapping
 )
 
+TRACE_IGNORE = False
 # Field accessor functions that return aggregation functions with type safety
 def merge_all_bboxes(field_name: str) -> GroupFunction:
     """
@@ -23,9 +24,9 @@ def merge_all_bboxes(field_name: str) -> GroupFunction:
     Returns:
         Function that takes a group and returns merged bbox or None
     """
-    __trace_ignore__ = True
+    __trace_ignore__ = TRACE_IGNORE
     def _merge_bboxes(group: 'GroupbyQueryResult') -> Optional[BBox]:
-        __trace_ignore__ = True
+        __trace_ignore__ = TRACE_IGNORE
         bboxes_to_merge: Optional[BBoxList] = getattr(group, field_name, None)
         if not bboxes_to_merge:
             return None

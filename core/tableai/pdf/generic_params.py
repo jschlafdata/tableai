@@ -5,6 +5,8 @@ from typing import List, Dict, Any, Optional, Union, Type
 from tableai.pdf.generic_tools import GroupbyTransform
 from pydantic import BaseModel, Field, field_serializer, create_model
 
+TRACE_IGNORE = False
+
 class QueryParams(BaseModel):
     """
     A comprehensive, self-documenting model for all parameters
@@ -141,7 +143,7 @@ class WhitespaceGenerator:
             "description": self.description
         }
 
-TRACE_IGNORE=True
+
 class GenericFunctionParams(BaseModel):
     """
     A base model for query parameters. All dynamically created parameter
