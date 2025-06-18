@@ -154,4 +154,3 @@ class VirtualPageManager:
     def combined_doc_height(self) -> float:
         """Get combined document height."""
         return self.metadata.get("combined_doc_height", 0)
-    

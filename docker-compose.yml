@@ -13,6 +13,7 @@ services:
       - PYTHONUNBUFFERED=1
       - MODEL_CACHE_DIR=/app/models
       - PORT=8001
+      - TABLEAI_BUILD=1
     volumes:
       # Cache downloaded models to avoid re-downloading
       - yolo_models:/app/models
@@ -90,6 +91,7 @@ services:
       - PYTHONUNBUFFERED=1
       - MODEL_CACHE_DIR=/app/models
       - PORT=8002
+      - TABLEAI_BUILD=1
     volumes:
       # Cache downloaded models to avoid re-downloading
       - detectron_models:/app/models
@@ -115,29 +117,6 @@ services:
         reservations:
           cpus: '1.0'
           memory: 2G
-  nlm-ingestor:
-    image: ghcr.io/nlmatics/nlm-ingestor:latest
-    container_name: nlm-ingestor-service
-    ports:
-      - "8003:5001"  # exposes port 5001 as shown in Dockerfile
-    environment:
-      - PYTHONUNBUFFERED=1
-    restart: unless-stopped
-    networks:
-      - tableai-network
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.routers.nlm-ingestor.rule=Host(`nlm-ingestor.localhost`)"
-      - "traefik.http.services.nlm-ingestor.loadbalancer.server.port=5001"
-    # Resource limits
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 4G
-        reservations:
-          cpus: '1.0'
-          memory: 2G
 
 volumes:
   yolo_models:
@@ -151,3 +130,29 @@ networks:
   tableai-network:
     driver: bridge
     name: tableai-network
+
+  
+
+# nlm-ingestor:
+#   image: ghcr.io/nlmatics/nlm-ingestor:latest
+#   container_name: nlm-ingestor-service
+#   ports:
+#     - "8003:5001"  # exposes port 5001 as shown in Dockerfile
+#   environment:
+#     - PYTHONUNBUFFERED=1
+#   restart: unless-stopped
+#   networks:
+#     - tableai-network
+#   labels:
+#     - "traefik.enable=true"
+#     - "traefik.http.routers.nlm-ingestor.rule=Host(`nlm-ingestor.localhost`)"
+#     - "traefik.http.services.nlm-ingestor.loadbalancer.server.port=5001"
+#   # Resource limits
+#   deploy:
+#     resources:
+#       limits:
+#         cpus: '2.0'
+#         memory: 4G
+#       reservations:
+#         cpus: '1.0'
+#         memory: 2G

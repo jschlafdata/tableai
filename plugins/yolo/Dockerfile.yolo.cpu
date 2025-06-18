@@ -6,7 +6,8 @@ FROM python:3.11-slim-bullseye
 ENV PIP_NO_CACHE_DIR=off \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive \
-    PORT=8000
+    PORT=8000 \
+    TABLEAI_BUILD=0
 
 # ── OS deps ─────────────────────────────────────────────────────
 RUN apt-get update && \
@@ -32,15 +33,16 @@ RUN pip install \
     torchvision==0.15.2 \
     --extra-index-url https://download.pytorch.org/whl/cpu
 
-# ── Install your library from Git ───────────────────────────────
+RUN git clone https://github.com/THU-MIG/yolov10.git /yolov10 \
+    && pip install /yolov10
+
+# 7) Install (or force-reinstall) tableai with the detectroncpu extra
 RUN pip install --no-cache-dir \
-    "git+https://github.com/jschlafdata/tableai.git@dev0.0.1#egg=tableai[core]"
+        ${TABLEAI_BUILD:+--force-reinstall} \
+        "git+https://github.com/jschlafdata/tableai.git@dev0.0.1#egg=tableai[core]"
 
 COPY ./plugins/yolo/requirements/yolo.cpu.requirements.txt /tmp/yolo.cpu.requirements.txt
 RUN pip install -r /tmp/yolo.cpu.requirements.txt
-
-RUN git clone https://github.com/THU-MIG/yolov10.git /yolov10 \
-    && pip install /yolov10
 
 WORKDIR /app
 COPY ./plugins/yolo/ ./app/

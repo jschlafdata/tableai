@@ -584,8 +584,9 @@ class PDFModel(BaseModel):
         """
         x1_px, y1_px, x2_px, y2_px = bbox_px
         img_w, img_h = image_dims
+        page_h = self.vpm.combined_doc_height
+        page_w = self.vpm.combined_doc_width
 
-        page_w, page_h = self.page_sizes[page_number]       # PDF pts
         sx, sy = page_w / img_w, page_h / img_h
 
         return (x1_px * sx, y1_px * sy, x2_px * sx, y2_px * sy)
