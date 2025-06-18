@@ -178,6 +178,7 @@ class PDFModel(BaseModel):
         
         if virtual_page_metadata:
             self.vpm = VirtualPageManager(virtual_page_metadata)
+            self.virtual_page_metadata = virtual_page_metadata
         else:
             raise ValueError("Failed to generate virtual page metadata during stitching.")
 
