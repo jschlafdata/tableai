@@ -131,15 +131,11 @@ noise_params = NoiseRegionParams(
         default=None, 
         description="Noise regions organized by page"
     )
-    pdf_model: Optional[Any] = Field(default=None, exclude=True)
+    pdf_model: Optional[Any] = Field(default=None, exclude=False)
     
     # Enhanced display methods using PDFModel
     def show_result_with_highlights(self, **kwargs):
         """Display the result using PDFModel with noise/content region highlights."""
-        if not self.pdf_model:
-            print("PDFModel not available, falling back to basic display")
-            self.display_images()
-            return
         
         # Create highlight boxes for noise and content regions
         highlight_boxes = {}
