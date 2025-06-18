@@ -336,7 +336,7 @@ GroupTouchingBoxesParams = GenericFunctionParams.create_custom_model(
 )
 async def run_group_vertically_touching_bboxes(ctx: RunContext, input: StepInput[ResultSet]) -> List[List[Tuple[float, ...]]]:
     pdf_model = ctx.deps.pdf_model
-    pdf_margin_bboxes = pdf_model.vpm['page_content_areas']['margin_bboxes']
+    pdf_margin_bboxes = pdf_model.virtual_page_metadata['page_content_areas']['margin_bboxes']
     
     grouped_data = input.data
     whitespace_blocks = input.data['get_large_whitespace_blocks']
