@@ -11,7 +11,7 @@ style = "pep440"
 bump = true
 
 [project]
-name = "tableai"
+name = "tableai-slim"
 dynamic = ["version"]
 description = "PDF Table extraction UV monorepo: core lib + backend + optional plugins (CPU/GPU)."
 authors = [
@@ -19,10 +19,6 @@ authors = [
 ]
 readme = "README.md"
 license = ""
-
-
-[tool.poetry.dependencies]
-requires-python = ">=3.10"
 
 [project.urls]
 Source = https://github.com/jschlafdata/tableai
@@ -36,11 +32,19 @@ cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true 
 [tool.hatch.version]
 source = "uv-dynamic-versioning"
 
-[tool.uv.sources]
-tableai = { workspace = true }
-tableai-slim = { workspace = true }
-
-[tool.uv.workspace]
-members = [
-    "tableai_slim"
+dependencies=[
+    "pandas==2.2.3"
+    "numpy==2.2.4"
+    "PyMuPDF==1.25.5" 
+    "json-repair==0.32.0"
+    "pydantic==2.9.2"
+    "pyyaml==6.0.1"
+    "pytesseract==0.3.13"
+    "ocrmypdf==16.10.1"
+    "pdf2image==1.17.0"
+    "Pillow^=10.0.0"
+    "dateparser==1.2.1"
 ]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tableai"]
