@@ -5,11 +5,11 @@ import uuid
 import fitz
 from pathlib import Path
 
-from ._exceptions import PdfHasNoPagesError
-from ._exceptions import PdfHasNoSizeError
-from ._exceptions import PdfPathDoesNotExist
-from ._exceptions import PdfProcessingError
-from ._exceptions import PdfHasNoTextError
+from .exceptions import PdfHasNoPagesError
+from .exceptions import PdfHasNoSizeError
+from .exceptions import PdfPathDoesNotExist
+from .exceptions import PdfProcessingError
+from .exceptions import PdfHasNoTextError
 
 from ._async_iter import aislice
 from ._async_iter import amap
@@ -17,9 +17,6 @@ from ._async_iter import atee
 
 from ._utils import ext_page_metadata
 from ._utils import ext_pdf_metadata
-
-import dateparser
-
 
 @dataclass(frozen=True)
 class DocumentIdentity:
