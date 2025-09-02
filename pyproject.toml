@@ -23,6 +23,7 @@ requires-python = ">=3.11,<4.0"
 
 [project.urls]
 Source = "https://github.com/jschlafdata/tableai"
+Homepage = "https://github.com/jschlafdata/tableai"
 
 [tool.uv]
 cache-keys = [

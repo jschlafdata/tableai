@@ -21,8 +21,8 @@ readme = "README.md"
 requires-python = ">=3.11,<4.0"
 
 [project.urls]
-Homepage = "https://github.com/jschlafdata/tableai/tree/main"
-Source = "https://github.com/jschlafdata/tableai/tree/main"
+Homepage = "https://github.com/jschlafdata/tableai/tree/main/tableai_slim"
+Source = "https://github.com/jschlafdata/tableai/tree/main/tableai_slim"
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies=[

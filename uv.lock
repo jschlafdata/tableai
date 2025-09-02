@@ -2448,7 +2448,6 @@ dependencies = [
     { name = "sqladmin" },
     { name = "sqlalchemy" },
     { name = "sqlmodel" },
-    { name = "tableai-plugins" },
     { name = "tableai-slim" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2471,7 +2470,6 @@ requires-dist = [
     { name = "sqladmin", specifier = "==0.16.1" },
     { name = "sqlalchemy", specifier = "==2.0.30" },
     { name = "sqlmodel", specifier = "==0.0.23" },
-    { name = "tableai-plugins", editable = "tableai_plugins" },
     { name = "tableai-slim", editable = "tableai_slim" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
 ]
