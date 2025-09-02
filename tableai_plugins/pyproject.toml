@@ -9,10 +9,9 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
-fallback-version = "0.0.0"
 
 [project]
-name = "tableai"
+name = "tableai-plugins"
 dynamic = ["version", "dependencies", "optional-dependencies"]
 description = "PDF Table extraction UV monorepo: core lib + backend + optional plugins (CPU/GPU)."
 authors = [
@@ -22,7 +21,15 @@ readme = "README.md"
 requires-python = ">=3.11,<4.0"
 
 [project.urls]
-Source = "https://github.com/jschlafdata/tableai"
+Homepage = "https://github.com/jschlafdata/tableai/tree/main"
+Source = "https://github.com/jschlafdata/tableai/tree/main"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies =   [
+    "ultralytics @ git+https://github.com/THU-MIG/yolov10.git",
+    "tableai-slim=={{ version }}",
+    "huggingface-hub==0.34.4",
+]
 
 [tool.uv]
 cache-keys = [
@@ -31,35 +38,11 @@ cache-keys = [
     { file = "**/*.toml" }
 ]
 
-[tool.hatch.metadata.hooks.uv-dynamic-versioning]
-dependencies = [
-  "tableai-slim[plugins]=={{ version }}"
-]
+[tool.hatch.build.targets.wheel]
+packages = ["tableai_plugins"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.uv.sources]
-tableai = { workspace = true }
 tableai-slim = { workspace = true }
-tableai-plugins = { workspace = true }
-
-[tool.uv.workspace]
-members = [
-    "tableai_slim",
-    "tableai_plugins"
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=8.3.3",
-    "pytest-asyncio>=0.23.5"
-]
-
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-markers = [
-  "asyncio: mark test as asyncio-based",
-  "slow: marks tests as slow",
-]
-filterwarnings = [
-  "ignore: builtin type SwigPyObject.*:DeprecationWarning",
-  "ignore: builtin type swigvarlink.*:DeprecationWarning",
-]

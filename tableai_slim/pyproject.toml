@@ -12,13 +12,19 @@ bump = true
 
 [project]
 name = "tableai-slim"
-dynamic = ["version"]
+dynamic = ["version", "dependencies", "optional-dependencies"]
 description = "PDF Table extraction UV monorepo: core lib + backend + optional plugins (CPU/GPU)."
 authors = [
         { name = "John Schlafly", email = "john@schlafdata.com" },
 ]
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
+
+[project.urls]
+Homepage = "https://github.com/jschlafdata/tableai/tree/main"
+Source = "https://github.com/jschlafdata/tableai/tree/main"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies=[
     "pandas==2.2.3",
     "numpy==2.2.4",
@@ -33,9 +39,8 @@ dependencies=[
     "dateparser==1.2.1"
 ]
 
-[project.urls]
-Homepage = "https://github.com/jschlafdata/tableai/tree/main"
-Source = "https://github.com/jschlafdata/tableai/tree/main"
+[tool.hatch.metadata.hooks.uv-dynamic-versioning.optional-dependencies]
+plugins = ["tableai-plugins=={{ version }}"]
 
 [tool.uv]
 cache-keys = [

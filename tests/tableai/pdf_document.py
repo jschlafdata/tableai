@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import List, Dict, Any
 import hashlib
 
-# Assuming the following imports based on your structure
-from tableai import PDFDocument, DocumentIdentity, Page
-from tableai import PdfProcessingError, PdfPathDoesNotExist, PdfHasNoPagesError, PdfHasNoSizeError
-
+from tableai import (
+    PDFDocument, DocumentIdentity, Page,
+    PdfProcessingError, PdfPathDoesNotExist, PdfHasNoPagesError, PdfHasNoSizeError,
+)
 
 # Test fixtures
 @pytest.fixture
