@@ -9,7 +9,6 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
-fallback-version = "0.0.0"
 
 [project]
 name = "tableai-backend"
@@ -63,4 +62,3 @@ allow-direct-references = true
 
 [tool.uv.sources]
 tableai-slim = { workspace = true }
-tableai-plugins = { workspace = true }

@@ -3,7 +3,6 @@ from .vision import Detect
 
 from importlib.metadata import version as _metadata_version
 
-
 __all__ = (
     '__version__',
     'YOLOv10',
