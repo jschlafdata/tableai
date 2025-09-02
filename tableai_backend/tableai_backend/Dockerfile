@@ -25,6 +25,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+COPY tableai_backend/tableai_backend/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 COPY . .
 
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -40,4 +44,4 @@ EXPOSE ${PORT}
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:${PORT}/health || exit 1
 
-CMD uv run uvicorn tableai_backend.app.main:app --host 0.0.0.0 --port ${PORT} --reload
+ENTRYPOINT ["/entrypoint.sh"]
