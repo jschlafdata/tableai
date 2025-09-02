@@ -1,0 +1,52 @@
+version: "3.9"
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    ports: ["5432:5432"]
+    volumes:
+      - db_data:/var/lib/postgresql/data
+  
+  api:
+    build:
+      context: .
+      dockerfile: tableai_backend/tableai_backend/Dockerfile
+      args:
+        PORT: 8000  # Build-time argument
+    environment:
+      - PYTHONUNBUFFERED=1
+      - LOG_LEVEL=DEBUG
+      - PORT=8000  # Runtime environment variable
+    env_file:
+      - ./tableai_backend/tableai_backend/.env
+    ports: ["${PORT:-8000}:${PORT:-8000}"]  # Can use env var with default
+    depends_on:
+      - db
+    volumes:
+      - ./tableai_backend:/app  # Fixed the volume path
+
+volumes:
+  db_data:
+
+  # web:
+  #   image: node:20-alpine
+  #   working_dir: /app
+  #   # Fallback to npm install when no lockfile is present
+  #   command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npm run dev -- --host 0.0.0.0"
+  #   ports: ["5173:5173"]
+  #   volumes:
+  #     - ./frontend:/app
+  #     # optional: keep node_modules inside the container, not on your host
+  #     # - /app/node_modules
+  #   environment:
+  #     - VITE_API_URL=http://localhost:8000
+  #     # optional: improve file watching on macOS/WSL if hot reload seems flaky
+  #     # - CHOKIDAR_USEPOLLING=1
+
+
+  # /Users/johnschlafly/Documents/tableai2.0/tableai/tablai_backend/tablai_backend/.env
+  # /Users/johnschlafly/Documents/tableai2.0/tableai/tableai_backend/tableai_backend
+  # /Users/johnschlafly/Documents/tableai2.0/tableai/tableai_backend/tableai_backend/.env
