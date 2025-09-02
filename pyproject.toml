@@ -45,5 +45,18 @@ members = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.3"
+    "pytest>=8.3.3",
+    "pytest-asyncio>=0.23.5"
+]
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+markers = [
+  "asyncio: mark test as asyncio-based",
+  "slow: marks tests as slow",
+]
+filterwarnings = [
+  "ignore: builtin type SwigPyObject.*:DeprecationWarning",
+  "ignore: builtin type swigvarlink.*:DeprecationWarning",
 ]
