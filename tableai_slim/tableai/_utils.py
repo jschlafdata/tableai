@@ -4,7 +4,8 @@ from datetime import datetime
 from typing import Dict, Any
 import fitz
 from typing import Optional, Any, List, Dict, Union, Tuple
-from tableai._coordinates import BBox, Box
+
+from ._coordinates import BBox, Box
 
 def ext_pdf_date(meta_date: str = None) -> str:
     date_l = list(filter(None, re.split(':|-|D', meta_date)))

@@ -4,7 +4,7 @@ This repo demonstrates a **lightweight core** library (`tableai-slim`) plus **op
 wired with **uv workspaces**. Pip users can install only what they need via **extras**.
 
 ## Layout
-- `libs/tableai` – core package (PyMuPDF-based table hints). Optional extras for **local** YOLO/Classifier and **HTTP clients**.
+- `tableai` – core package (PyMuPDF-based table hints). Optional extras for **local** YOLO/Classifier and **HTTP clients**.
 - `services/backend` – FastAPI backend that orchestrates core + optional plugins (HTTP) or local inference fallback.
 - `plugins/yolo` – YOLO microservice (CPU & GPU Dockerfiles, uv-based).
 - `plugins/classifier` – Classifier microservice (CPU & GPU Dockerfiles, uv-based).
@@ -16,6 +16,15 @@ uv sync
 # Dev: run backend
 uv run --package backend uvicorn backend.main:app --host 0.0.0.0 --port 8011
 ```
+
+<!-- cache-keys = [{ file = "pyproject.toml" }, { file = "requirements.txt" }] -->
+<!-- cache-keys = [{ file = "**/*.toml" }] -->
+<!--  -->
+<!-- cache-keys = [{ file = "pyproject.toml" }, { env = "MY_ENV_VAR" }] -->
+<!-- reinstall-package = ["my-package"] -->
+<!--  -->
+
+
 
 ### Docker Compose
 CPU-only:

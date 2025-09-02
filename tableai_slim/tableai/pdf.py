@@ -5,18 +5,20 @@ import uuid
 import fitz
 from pathlib import Path
 
-from tableai._exceptions import PdfHasNoPagesError
-from tableai._exceptions import PdfHasNoSizeError
-from tableai._exceptions import PdfPathDoesNotExist
-from tableai._exceptions import PdfProcessingError
-from tableai._exceptions import PdfHasNoTextError
+from ._exceptions import PdfHasNoPagesError
+from ._exceptions import PdfHasNoSizeError
+from ._exceptions import PdfPathDoesNotExist
+from ._exceptions import PdfProcessingError
+from ._exceptions import PdfHasNoTextError
 
-from tableai._async_iter import aislice
-from tableai._async_iter import amap
-from tableai._async_iter import atee
+from ._async_iter import aislice
+from ._async_iter import amap
+from ._async_iter import atee
 
-from tableai._utils import ext_page_metadata
-from tableai._utils import ext_pdf_metadata
+from ._utils import ext_page_metadata
+from ._utils import ext_pdf_metadata
+
+import dateparser
 
 
 @dataclass(frozen=True)
