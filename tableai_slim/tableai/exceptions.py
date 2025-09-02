@@ -1,3 +1,12 @@
+from __future__ import annotations
+
+__all__ = (
+    'PdfProcessingError', 
+    'PdfPathDoesNotExist', 
+    'PdfHasNoPagesError', 
+    'PdfHasNoSizeError'
+)
+
 class PdfProcessingError(Exception):
     """Base class for PDF-related errors."""
 
