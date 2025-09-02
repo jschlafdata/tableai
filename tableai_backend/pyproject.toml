@@ -9,6 +9,7 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
+fallback-version = "0.0.0"
 
 [project]
 name = "tableai-backend"
@@ -21,8 +22,8 @@ readme = "README.md"
 requires-python = ">=3.11,<4.0"
 
 [project.urls]
-Homepage = "https://github.com/jschlafdata/tableai/tree/main"
-Source = "https://github.com/jschlafdata/tableai/tree/main"
+Homepage = "https://github.com/jschlafdata/tableai"
+Source = "https://github.com/jschlafdata/tableai"
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies =   [
