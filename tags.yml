@@ -1,5 +1,0 @@
-tags:
-- git tag -d 0.0.1
-- git push origin --delete 0.0.1
-- git tag 0.0.1
-- git push origin 0.0.1
