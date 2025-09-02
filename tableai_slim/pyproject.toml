@@ -19,13 +19,6 @@ authors = [
 ]
 readme = "README.md"
 requires-python = ">=3.11,<4.0"
-
-[project.urls]
-Source = "https://github.com/jschlafdata/tableai"
-
-[tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true }}]
-
 dependencies=[
     "pandas==2.2.3",
     "numpy==2.2.4",
@@ -40,9 +33,19 @@ dependencies=[
     "dateparser==1.2.1"
 ]
 
+[project.urls]
+Homepage = "https://github.com/jschlafdata/tableai/tree/main"
+Source = "https://github.com/jschlafdata/tableai/tree/main"
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" }, 
+    { git = { commit = true, tags = true }},
+    { file = "**/*.toml" }
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["tableai"]
-
 
 [tool.hatch.metadata]
 allow-direct-references = true

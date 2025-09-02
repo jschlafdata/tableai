@@ -8,8 +8,8 @@ from typing import List, Dict, Any
 import hashlib
 
 # Assuming the following imports based on your structure
-from tableai_slim.tableai.pdf import PDFDocument, DocumentIdentity, Page
-from tableai_slim.tableai._exceptions import PdfProcessingError, PdfPathDoesNotExist, PdfHasNoPagesError, PdfHasNoSizeError
+from tableai.pdf import PDFDocument, DocumentIdentity, Page
+from tableai._exceptions import PdfProcessingError, PdfPathDoesNotExist, PdfHasNoPagesError, PdfHasNoSizeError
 
 
 # Test fixtures
