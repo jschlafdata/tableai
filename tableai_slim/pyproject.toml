@@ -41,6 +41,7 @@ dependencies=[
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning.optional-dependencies]
 plugins = ["tableai-plugins=={{ version }}"]
+backend = ["tableai-backend=={{ version }}"]
 
 [tool.uv]
 cache-keys = [

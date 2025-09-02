@@ -2404,7 +2404,7 @@ wheels = [
 name = "tableai"
 source = { editable = "." }
 dependencies = [
-    { name = "tableai-slim", extra = ["plugins"] },
+    { name = "tableai-slim", extra = ["backend", "plugins"] },
 ]
 
 [package.dev-dependencies]
@@ -2414,7 +2414,7 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tableai-slim", extras = ["plugins"], editable = "tableai_slim" }]
+requires-dist = [{ name = "tableai-slim", extras = ["backend", "plugins"], editable = "tableai_slim" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2504,6 +2504,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+backend = [
+    { name = "tableai-backend" },
+]
 plugins = [
     { name = "tableai-plugins" },
 ]
@@ -2521,9 +2524,10 @@ requires-dist = [
     { name = "pymupdf", specifier = "==1.25.5" },
     { name = "pytesseract", specifier = "==0.3.13" },
     { name = "pyyaml", specifier = "==6.0.1" },
+    { name = "tableai-backend", marker = "extra == 'backend'", editable = "tableai_backend" },
     { name = "tableai-plugins", marker = "extra == 'plugins'", editable = "tableai_plugins" },
 ]
-provides-extras = ["plugins"]
+provides-extras = ["backend", "plugins"]
 
 [[package]]
 name = "thop"

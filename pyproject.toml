@@ -33,7 +33,7 @@ cache-keys = [
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
-  "tableai-slim[plugins]=={{ version }}"
+  "tableai-slim[plugins,backend]=={{ version }}"
 ]
 
 [tool.uv.sources]
