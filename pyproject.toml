@@ -9,6 +9,7 @@ source = "uv-dynamic-versioning"
 vcs = "git"
 style = "pep440"
 bump = true
+fallback-version = "0.0.0"
 
 [project]
 name = "tableai"
@@ -18,23 +19,17 @@ authors = [
         { name = "John Schlafly", email = "john@schlafdata.com" },
 ]
 readme = "README.md"
-license = ""
-
-
-[tool.poetry.dependencies]
-requires-python = ">=3.10"
+requires-python = ">=3.11,<4.0"
 
 [project.urls]
-Source = https://github.com/jschlafdata/tableai
-
-[tool.uv-dynamic-versioning]
-fallback-version = "0.0.0"
+Source = "https://github.com/jschlafdata/tableai"
 
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { git = { commit = true, tags = true }}]
-
-[tool.hatch.version]
-source = "uv-dynamic-versioning"
+cache-keys = [
+    { file = "pyproject.toml" }, 
+    { git = { commit = true, tags = true }},
+    { file = "**/*.toml" }
+]
 
 [tool.uv.sources]
 tableai = { workspace = true }
@@ -43,4 +38,9 @@ tableai-slim = { workspace = true }
 [tool.uv.workspace]
 members = [
     "tableai_slim"
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.3"
 ]
