@@ -44,3 +44,66 @@ export async function updateUser(id: number, patch: Record<string, unknown>) {
   const { data } = await api.patch(`/users/${id}`, patch);
   return data;
 }
+
+
+export async function startDropboxSync(baseUrl: string, body: {
+  root_path?: string;
+  bucket?: string;
+  prefix?: string;
+  force?: boolean;
+}) {
+  const resp = await fetch(`${baseUrl}/integrations/dropbox/sync`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({
+      root_path: body.root_path ?? "/",
+      bucket: body.bucket,
+      prefix: body.prefix,
+      force: body.force ?? false,
+    }),
+  });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json() as Promise<{ task_id: string }>;
+}
+
+export async function getTaskStatus(baseUrl: string, task_id: string) {
+  // Works for both /integrations/dropbox/sync/status and /classifier/task/status
+  const sync = await fetch(`${baseUrl}/integrations/dropbox/sync/status?task_id=${encodeURIComponent(task_id)}`);
+  if (sync.ok) return sync.json();
+  const cls = await fetch(`${baseUrl}/classifier/task/status?task_id=${encodeURIComponent(task_id)}`);
+  if (cls.ok) return cls.json();
+  throw new Error("Task not found");
+}
+
+export async function classifyS3Now(baseUrl: string, opts: {
+  bucket?: string;
+  prefix?: string;
+  min_cluster?: number;
+  upload_yaml_to_s3?: boolean;
+}) {
+  const u = new URL(`${baseUrl}/classifier/classify-s3`);
+  if (opts.bucket) u.searchParams.set("bucket", opts.bucket);
+  if (opts.prefix) u.searchParams.set("prefix", opts.prefix);
+  if (opts.min_cluster !== undefined) u.searchParams.set("min_cluster", String(opts.min_cluster));
+  if (opts.upload_yaml_to_s3 !== undefined) u.searchParams.set("upload_yaml_to_s3", String(opts.upload_yaml_to_s3));
+  const resp = await fetch(u.toString(), { method: "POST" });
+  if (!resp.ok) throw new Error(await resp.text());
+  const blob = await resp.blob();
+  return blob; // clusters.yaml blob (download or parse)
+}
+
+export async function classifyS3Async(baseUrl: string, opts: {
+  bucket?: string;
+  prefix?: string;
+  min_cluster?: number;
+  upload_yaml_to_s3?: boolean;
+}) {
+  const u = new URL(`${baseUrl}/classifier/classify-s3/async`);
+  if (opts.bucket) u.searchParams.set("bucket", opts.bucket);
+  if (opts.prefix) u.searchParams.set("prefix", opts.prefix);
+  if (opts.min_cluster !== undefined) u.searchParams.set("min_cluster", String(opts.min_cluster));
+  if (opts.upload_yaml_to_s3 !== undefined) u.searchParams.set("upload_yaml_to_s3", String(opts.upload_yaml_to_s3));
+  const resp = await fetch(u.toString(), { method: "POST" });
+  if (!resp.ok) throw new Error(await resp.text());
+  return resp.json() as Promise<{ task_id: string }>;
+}

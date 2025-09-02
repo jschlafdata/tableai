@@ -31,7 +31,7 @@ const PageLayout: React.FC<PageLayoutProps> = ({
   showSidebar = true,
   menuConfig,
   headerRight,
-  user, // Accept user prop but it's optional
+  user,
 }) => {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
@@ -42,27 +42,14 @@ const PageLayout: React.FC<PageLayoutProps> = ({
     mainTitle: "Main Menu",
     main: [
       { name: "Dashboard", path: "/", icon: "🏠" },
-      { name: "Document Processing", path: "/processing", icon: "📄" },
-      { name: "Cloud Storage", path: "/cloud_storage/documents", icon: "☁️" },
-      {
-        name: "Document Viewer",
-        path: "/processing/pdf_viewer",
-        icon: "📄",
-        children: [
-          { name: "Classifications", path: "/processing/classifications", icon: "🔗" },
-        ],
-      },
-      { name: "S3 PDF Viewer", path: "/processing/pdf/s3_viewer", icon: "📄" },
-      {
-        name: "Profile",
-        path: "/profile",
-        icon: "👤",
-        children: [
-          { name: "Integrations", path: "/profile/integrations", icon: "🔗" },
-        ],
-      },
+      { name: "PDF Classifications", path: "/processing/classifications", icon: "🏷️" },
+      { name: "Document Viewer", path: "/processing/pdf_viewer", icon: "📖" },
+      { name: "Documents", path: "/cloud_storage/documents", icon: "📁" },
+      { name: "Integrations", path: "/integrations", icon: "🔗" },
+      { name: "Enhanced Integrations", path: "/integrations-page", icon: "⚡" },
     ],
   };
+
 
   const activeMenuConfig = menuConfig || defaultMenuConfig;
 

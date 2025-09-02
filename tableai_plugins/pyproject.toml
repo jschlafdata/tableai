@@ -28,6 +28,7 @@ Source = "https://github.com/jschlafdata/tableai"
 dependencies =   [
     "ultralytics @ git+https://github.com/THU-MIG/yolov10.git",
     "tableai-slim=={{ version }}",
+    "tableai-backend=={{ version }}",
     "huggingface-hub==0.34.4",
     "opencv-python==4.9.0.80",
     "scipy==1.13.0",

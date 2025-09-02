@@ -7,7 +7,7 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger(__name__)
 
 class BotoS3:
-    def __init__(self, aws_profile: str | None, aws_region: str, action: str | None = None):
+    def __init__(self, action: str | None = None, aws_profile: str = 'tableai-dev', aws_region: str = 'us-west-2'):
         self.aws_profile = aws_profile
         self.aws_region = aws_region
         self.action = action

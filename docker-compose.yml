@@ -20,6 +20,10 @@ services:
       - PYTHONUNBUFFERED=1
       - LOG_LEVEL=DEBUG
       - PORT=8000  # Runtime environment variable
+      # AWS Profile selection
+      - AWS_PROFILE=${AWS_PROFILE:-default}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_SSO_CACHE_DIR=/app/.aws/sso/cache
     env_file:
       - ./tableai_backend/tableai_backend/.env
     ports: ["${PORT:-8000}:${PORT:-8000}"]  # Can use env var with default
@@ -27,6 +31,10 @@ services:
       - db
     volumes:
       - ./tableai_backend:/app  # Fixed the volume path
+      # Mount SSH configuration and keys to a staging area (read-only for security)
+      - ~/.ssh:/tmp/ssh-mount:ro
+      # Mount AWS credentials and config
+      - ~/.aws:/app/.aws:ro
 
   web:
     image: node:20-alpine

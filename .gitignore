@@ -18,3 +18,4 @@ __pycache__/
 
 # local caches
 api/data/*
+node_modules/

@@ -27,6 +27,7 @@ Source = "https://github.com/jschlafdata/tableai"
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies =   [
     "tableai-slim=={{ version }}",
+    "tableai-plugins=={{ version }}",
     "uvicorn[standard]==0.35.0",
     "huggingface-hub==0.34.4",
     "fastapi==0.111.0",
@@ -43,7 +44,8 @@ dependencies =   [
     "requests==2.32.5",
     "google-api-python-client==2.170.0",
     "dropbox==12.0.2",
-    "boto3==1.38.24"
+    "boto3==1.38.24",
+    "aiofiles==24.1.0"
 ]
 
 [tool.uv]
@@ -61,3 +63,4 @@ allow-direct-references = true
 
 [tool.uv.sources]
 tableai-slim = { workspace = true }
+tableai-plugins = { workspace = true }

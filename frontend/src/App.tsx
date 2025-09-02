@@ -8,6 +8,9 @@ import ClassifyPage from "./components/classify/ClassifyPage";
 import PdfViewer from "./components/pdf/PdfViewer";
 import { me, setToken } from "./api";
 import type { User } from "./types/user";
+import IntegrationsPage from "./components/integrations/IntegrationsPage";
+import CloudIntegrationsPage from "./components/integrations/CloudIntegrationsPage";
+import UnifiedFileViewer from "./components/integrations/UnifiedFileViewer";
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -76,63 +79,12 @@ export default function App() {
       <Routes>
         {/* Home/Dashboard */}
         <Route path="/" element={<HomePage user={user} />} />
-        
         {/* Document Processing - uses the ClassifyPage component */}
-        <Route path="/processing" element={<ClassifyPage user={user} />} />
-        
-        {/* PDF Viewer for S3 documents */}
-        <Route path="/processing/pdf/s3_viewer" element={<PdfViewer user={user} />} />
-        <Route path="/processing/pdf_viewer" element={<PdfViewer user={user} />} />
-        
-        {/* Classifications page */}
         <Route path="/processing/classifications" element={<ClassifyPage user={user} />} />
-        
-        {/* Cloud Storage */}
-        <Route path="/cloud_storage/*" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Cloud Storage</h1>
-            <p>Cloud storage component to be implemented</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        
-        {/* Profile pages */}
-        <Route path="/profile" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Profile</h1>
-            <p>Profile component to be implemented</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        <Route path="/profile/info" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Profile Info</h1>
-            <p>Change your password and account settings</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        <Route path="/profile/integrations" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Integrations</h1>
-            <p>Connect your cloud storage accounts</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        <Route path="/profile/settings" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Settings</h1>
-            <p>Settings component to be implemented</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        <Route path="/profile/security" element={
-          <div style={{ padding: "20px" }}>
-            <h1>Security</h1>
-            <p>Security settings to be implemented</p>
-            <a href="/">Back to Home</a>
-          </div>
-        } />
-        
+        <Route path="/processing/pdf_viewer" element={<PdfViewer user={user} />} />
+        <Route path="/integrations-page" element={<IntegrationsPage user={user} />} />
+        <Route path="/integrations" element={<CloudIntegrationsPage user={user} />} />
+        <Route path="/cloud_storage/documents" element={<UnifiedFileViewer user={user} />} />
         {/* Catch all - redirect to home */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

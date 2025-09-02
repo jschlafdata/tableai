@@ -9,9 +9,9 @@ from .admin import init_admin
 from .models import User
 from .security import get_password_hash
 
-from .routers import oauth_dropbox, sync_dropbox
+from .routers import oauth_dropbox, integrations_dropbox
 from .models import OAuthToken
-
+from .routers import classifier
 
 from starlette.middleware.sessions import SessionMiddleware
 import os
@@ -38,8 +38,8 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(oauth_dropbox.router)
-app.include_router(sync_dropbox.router)
-
+app.include_router(integrations_dropbox.router)
+app.include_router(classifier.router)
 
 # Admin
 init_admin(app)

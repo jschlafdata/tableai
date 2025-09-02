@@ -24,7 +24,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY . .
-
 RUN uv pip install -e .
 
 # Expose port and define the command to run your application
