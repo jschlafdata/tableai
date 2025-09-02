@@ -29,6 +29,7 @@ dependencies =   [
     "ultralytics @ git+https://github.com/THU-MIG/yolov10.git",
     "tableai-slim=={{ version }}",
     "huggingface-hub==0.34.4",
+    "opencv-python==4.9.0.80"
 ]
 
 [tool.uv]
