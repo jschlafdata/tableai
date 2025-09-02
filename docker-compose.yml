@@ -28,25 +28,20 @@ services:
     volumes:
       - ./tableai_backend:/app  # Fixed the volume path
 
+  web:
+    image: node:20-alpine
+    working_dir: /app
+    # Fallback to npm install when no lockfile is present
+    command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npm run dev -- --host 0.0.0.0"
+    ports: ["5173:5173"]
+    volumes:
+      - ./frontend:/app
+      # optional: keep node_modules inside the container, not on your host
+      # - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+      # optional: improve file watching on macOS/WSL if hot reload seems flaky
+      # - CHOKIDAR_USEPOLLING=1
+
 volumes:
   db_data:
-
-  # web:
-  #   image: node:20-alpine
-  #   working_dir: /app
-  #   # Fallback to npm install when no lockfile is present
-  #   command: sh -c "([ -f package-lock.json ] && npm ci || npm install) && npm run dev -- --host 0.0.0.0"
-  #   ports: ["5173:5173"]
-  #   volumes:
-  #     - ./frontend:/app
-  #     # optional: keep node_modules inside the container, not on your host
-  #     # - /app/node_modules
-  #   environment:
-  #     - VITE_API_URL=http://localhost:8000
-  #     # optional: improve file watching on macOS/WSL if hot reload seems flaky
-  #     # - CHOKIDAR_USEPOLLING=1
-
-
-  # /Users/johnschlafly/Documents/tableai2.0/tableai/tablai_backend/tablai_backend/.env
-  # /Users/johnschlafly/Documents/tableai2.0/tableai/tableai_backend/tableai_backend
-  # /Users/johnschlafly/Documents/tableai2.0/tableai/tableai_backend/tableai_backend/.env

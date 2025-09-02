@@ -25,28 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY . .
 
-
-RUN uv venv /opt/venv
-COPY uv.lock pyproject.toml ./
-RUN . /opt/venv/bin/activate && \
-    uv sync --frozen
-
-# --- Stage 2: Final Image ---
-
-# Set up non-root user for security
-RUN useradd --create-home --shell /bin/bash appuser
-USER appuser
-WORKDIR /home/appuser/app
-
-# Copy your application's pre-built wheel and source code
-# The wheel contains the version and metadata, so no git is needed.
-COPY --chown=appuser:appuser dist/*.whl .
-COPY --chown=appuser:appuser tableai_backend ./tableai_backend
-
-# Set path to use the venv python and install the wheel
-ENV PATH="/opt/venv/bin:$PATH"
-RUN uv pip install *.whl
+RUN uv pip install -e .
 
 # Expose port and define the command to run your application
 EXPOSE 8000
-CMD ["uvicorn", "tableai_backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
