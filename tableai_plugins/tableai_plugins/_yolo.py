@@ -11,6 +11,7 @@ import torch
 from huggingface_hub import hf_hub_download
 from pydantic import BaseModel
 from ultralytics import YOLO, YOLOv10
+import os, tempfile
 
 os.environ["TORCH_LOAD_WEIGHTS_ONLY"] = "False"
 
@@ -25,11 +26,65 @@ class PageDimensions(BaseModel):
     image_height: int
 
 class YOLODetectionResult(BaseModel):
-    """Standardized output schema for YOLO detection results."""
     coordinates_by_page: Dict[int, List[BoundingBox]]
     table_bboxes: List[DetectionMetadata]
     all_model_bounds: Dict[int, Optional[DetectionMetadata]]
     page_dimensions: Dict[int, PageDimensions]
+
+    @property
+    def data(self) -> Dict[str, Any]:
+        return self.model_dump()
+
+
+def _resolve_cache_dir(passed: Optional[Union[str, Path]] = None) -> Path:
+    """
+    Choose a writable cache directory in this order:
+      1) explicit arg
+      2) env: TABLEAI_CACHE_DIR, MODEL_CACHE_DIR, HF_HOME, HF_HUB_CACHE, TORCH_HOME, XDG_CACHE_HOME
+      3) ~/.cache/tableai   (cross-platform safe enough)
+      4) a unique temp dir
+    """
+    def _ok(p: Path) -> bool:
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            test = p / ".write_test"
+            test.write_text("ok", encoding="utf-8")
+            test.unlink(missing_ok=True)
+            return True
+        except Exception:
+            return False
+
+    candidates = []
+    if passed:
+        candidates.append(Path(passed))
+
+    envs = (
+        "TABLEAI_CACHE_DIR",
+        "MODEL_CACHE_DIR",
+        "HF_HOME",
+        "HF_HUB_CACHE",
+        "TORCH_HOME",
+        "XDG_CACHE_HOME",
+    )
+    for e in envs:
+        v = os.getenv(e)
+        if not v:
+            continue
+        p = Path(v)
+        # nest under a subfolder when it’s a general cache root
+        if e in {"HF_HOME", "HF_HUB_CACHE", "TORCH_HOME", "XDG_CACHE_HOME"}:
+            p = p / "tableai"
+        candidates.append(p)
+
+    # user cache
+    candidates.append(Path.home() / ".cache" / "tableai")
+
+    for c in candidates:
+        if _ok(c):
+            return c
+
+    # final fallback: unique temp
+    return Path(tempfile.mkdtemp(prefix="tableai_cache_"))
 
 # ────────────────────────────────────────────────────────────────
 # 2. Module-level Model Configuration
@@ -62,56 +117,40 @@ _DOC_LAYNET_LABEL_MAP = {
 class YOLOTableDetector:
     """YOLO‐based detector with dynamic model reloading for parameter overrides."""
 
-    def __init__(self, model_data_dir: str = "/data"):
+    def __init__(self, model_data_dir: Optional[Union[str, Path]] = None):
         # Default thresholds are removed from here. They are now managed by the model's defaults.
-        self.model_data_dir = Path(model_data_dir)
-        self.model_data_dir.mkdir(parents=True, exist_ok=True)
-        # The cache now stores models keyed by a unique signature of their parameters.
+        self.model_data_dir = _resolve_cache_dir(model_data_dir)
         self._model_cache: Dict[str, Union[YOLO, YOLOv10]] = {}
 
-    # ... (_download_github_asset and _sha256 methods are unchanged) ...
     def _download_github_asset(self, cfg: Dict) -> str:
-        # (Implementation is identical)
         url, filename = cfg["url"], cfg["filename"]
         path = self.model_data_dir / filename
-        if path.exists(): return str(path)
-        print(f"Downloading {filename} …")
+        if path.exists():
+            return str(path)
         with requests.get(url, stream=True) as r:
             r.raise_for_status()
             with open(path, "wb") as f:
-                for chunk in r.iter_content(8192): f.write(chunk)
-        print(f"✓ downloaded → {path}")
+                for chunk in r.iter_content(8192):
+                    f.write(chunk)
         if cfg.get("expected_sha256") and self._sha256(path) != cfg["expected_sha256"]:
             path.unlink(missing_ok=True)
-            raise RuntimeError("SHA‑256 mismatch!")
+            raise RuntimeError("SHA-256 mismatch!")
         return str(path)
-        
+
     @staticmethod
     def _sha256(p: Path) -> str:
-        # (Implementation is identical)
         h = hashlib.sha256()
         with open(p, "rb") as f:
-            for chunk in iter(lambda: f.read(4096), b""): h.update(chunk)
+            for chunk in iter(lambda: f.read(4096), b""):
+                h.update(chunk)
         return h.hexdigest()
 
-    # --- THIS IS THE KEY CHANGE ---
     def _load_model(self, name: str, overrides: Optional[Dict] = None) -> Union[YOLO, YOLOv10]:
-        """
-        Loads a YOLO model, using a cache keyed by both model name and its override parameters.
-        If a model with the same parameters is already loaded, it's returned.
-        If parameters differ, a new model instance is created and cached.
-        """
-        # Create a unique signature for this model configuration
         overrides_str = json.dumps(overrides, sort_keys=True) if overrides else "{}"
         model_signature = f"{name}_{hashlib.sha256(overrides_str.encode()).hexdigest()[:8]}"
-
         if model_signature in self._model_cache:
-            # print(f"✓ Returning cached model '{model_signature}'")
             return self._model_cache[model_signature]
 
-        print(f"-> Loading new model instance: '{model_signature}' (name: {name}, overrides: {overrides_str})")
-
-        # 1. Load the base model from file
         if name not in _AVAILABLE_MODELS:
             raise ValueError(f"Unknown model '{name}'")
         cfg = _AVAILABLE_MODELS[name]
@@ -120,8 +159,7 @@ class YOLOTableDetector:
             if cfg["type"] == "huggingface"
             else self._download_github_asset(cfg)
         )
-        
-        # Patch torch.load if necessary (good practice to keep)
+
         orig_load = torch.load
         def _patched(*args, **kwargs):
             kwargs.setdefault("weights_only", False)
@@ -132,43 +170,34 @@ class YOLOTableDetector:
         finally:
             torch.load = orig_load
 
-        # 2. Apply the overrides
         if overrides:
             model.overrides.update(overrides)
-            print(f"✓ Applied overrides to '{model_signature}': {model.overrides}")
-        
         self._model_cache[model_signature] = model
-        print(f"✓ Caching new model '{model_signature}'")
         return model
 
     @classmethod
     def _label_for_class(cls, class_id: int, model_name: str) -> str:
-        if model_name == "doclaynet":
-            return _DOC_LAYNET_LABEL_MAP.get(class_id, f"class_{class_id}")
-        return "Table"
+        return _DOC_LAYNET_LABEL_MAP.get(class_id, f"class_{class_id}") if model_name == "doclaynet" else "Table"
 
     def _detect_on_page(
-        self, 
-        np_img: np.ndarray, 
-        page_num: int, zoom: float,
-        model: Union[YOLO, YOLOv10], 
+        self,
+        np_img: np.ndarray,
+        page_num: int,
+        zoom: float,
+        model: Union[YOLO, YOLOv10],
         model_name: str,
     ) -> Tuple[List[BoundingBox], DetectionMetadata]:
-        img_h, img_w, _ = np_img.shape
+        """Return (tables, others) as tuples, matching the Pydantic schema."""
         dets = model.predict(np_img, verbose=False)[0].boxes.cpu().data.numpy()
-        tables, others = [], {}
+        tables: List[BoundingBox] = []
+        others: DetectionMetadata = {}
         for x1, y1, x2, y2, conf, cls_id in dets:
+            bbox: BoundingBox = (float(x1), float(y1), float(x2), float(y2))
             label = self._label_for_class(int(cls_id), model_name)
-            d = dict(
-                yolo_bbox = (x1, y1, x2, y2),
-                width = img_w,
-                height = img_h,
-                zoom = zoom
-            )
             if label == "Table":
-                tables.append(d)
+                tables.append(bbox)
             else:
-                others.setdefault(label, []).append(d)
+                others.setdefault(label, []).append(bbox)
         return tables, others
 
     def run_on_image(
@@ -179,23 +208,14 @@ class YOLOTableDetector:
         model_name: str = "keremberke",
         model_overrides: Optional[Dict[str, Any]] = None,
     ) -> YOLODetectionResult:
-        """Processes a single image, dynamically loading the model with specified overrides."""
         model = self._load_model(model_name, overrides=model_overrides)
-
         img_h, img_w, _ = np_img.shape
-        page_dims = {
-            page_num: PageDimensions(image_width=img_w, image_height=img_h)
-        }
-
-        tables, others = self._detect_on_page(
-            np_img, page_num, zoom, model, model_name
-        )
-
+        tables, others = self._detect_on_page(np_img, page_num, zoom, model, model_name)
         return YOLODetectionResult(
             coordinates_by_page={page_num: tables},
-            table_bboxes=tables,
-            all_model_bounds={page_num: others if others else None},
-            page_dimensions=page_dims,
+            table_bboxes=[{"Table": tables}],  # list-per-page; adjust if you batch pages
+            all_model_bounds={page_num: others or None},
+            page_dimensions={page_num: PageDimensions(image_width=img_w, image_height=img_h)},
         )
 
     @classmethod

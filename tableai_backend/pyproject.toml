@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+
+[project]
+name = "tableai-backend"
+dynamic = ["version", "dependencies", "optional-dependencies"]
+description = "PDF Table extraction UV monorepo: core lib + backend + optional plugins (CPU/GPU)."
+authors = [
+        { name = "John Schlafly", email = "john@schlafdata.com" },
+]
+readme = "README.md"
+requires-python = ">=3.11,<4.0"
+
+[project.urls]
+Homepage = "https://github.com/jschlafdata/tableai/tree/main"
+Source = "https://github.com/jschlafdata/tableai/tree/main"
+
+[tool.hatch.metadata.hooks.uv-dynamic-versioning]
+dependencies =   [
+    "tableai-slim=={{ version }}",
+    "tableai-plugins=={{ version }}",
+    "uvicorn[standard]==0.35.0",
+    "huggingface-hub==0.34.4",
+    "fastapi==0.111.0",
+    "SQLAlchemy==2.0.30",
+    "psycopg[binary]==3.1.19",
+    "bcrypt==4.0.1",
+    "passlib[bcrypt]==1.7.4",
+    "python-jose[cryptography]==3.3.0",
+    "pydantic-settings==2.2.1",
+    "sqladmin==0.16.1",
+    "Jinja2==3.1.4",
+    "itsdangerous>=2.1",
+    "sqlmodel==0.0.23",
+    "requests==2.32.5",
+    "google-api-python-client==2.170.0",
+    "dropbox==12.0.2",
+    "boto3==1.38.24"
+]
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" }, 
+    { git = { commit = true, tags = true }},
+    { file = "**/*.toml" }
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["tableai_backend"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.uv.sources]
+tableai-slim = { workspace = true }
+tableai-plugins = { workspace = true }

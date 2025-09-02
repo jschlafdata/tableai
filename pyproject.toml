@@ -40,11 +40,13 @@ dependencies = [
 tableai = { workspace = true }
 tableai-slim = { workspace = true }
 tableai-plugins = { workspace = true }
+tableai-backend = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "tableai_slim",
-    "tableai_plugins"
+    "tableai_plugins",
+    "tableai_backend"
 ]
 
 [dependency-groups]
