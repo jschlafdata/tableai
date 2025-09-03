@@ -24,8 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 COPY . .
-RUN uv pip install -e .
+
+RUN uv pip install --system -e . --no-deps && \
+    uv pip install --system -e .
 
 # Expose port and define the command to run your application
 EXPOSE 8000
-CMD ["uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

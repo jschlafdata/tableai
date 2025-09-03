@@ -2518,7 +2518,7 @@ wheels = [
 name = "tableai"
 source = { editable = "." }
 dependencies = [
-    { name = "tableai-slim", extra = ["backend", "plugins"] },
+    { name = "tableai-slim", extra = ["plugins"] },
 ]
 
 [package.dev-dependencies]
@@ -2557,7 +2557,6 @@ dependencies = [
     { name = "sqladmin" },
     { name = "sqlalchemy" },
     { name = "sqlmodel" },
-    { name = "tableai-plugins" },
     { name = "tableai-slim" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -2581,7 +2580,6 @@ requires-dist = [
     { name = "sqladmin", specifier = "==0.16.1" },
     { name = "sqlalchemy", specifier = "==2.0.30" },
     { name = "sqlmodel", specifier = "==0.0.23" },
-    { name = "tableai-plugins", editable = "tableai_plugins" },
     { name = "tableai-slim", editable = "tableai_slim" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
 ]
@@ -2596,7 +2594,6 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pyyaml" },
     { name = "scipy" },
-    { name = "tableai-backend" },
     { name = "tableai-slim" },
     { name = "timm" },
     { name = "torch" },
@@ -2615,7 +2612,6 @@ requires-dist = [
     { name = "opencv-python", specifier = "==4.9.0.80" },
     { name = "pyyaml", specifier = "==6.0.2" },
     { name = "scipy", specifier = "==1.13.0" },
-    { name = "tableai-backend", editable = "tableai_backend" },
     { name = "tableai-slim", editable = "tableai_slim" },
     { name = "timm", specifier = "==1.0.12" },
     { name = "torch" },
@@ -2644,9 +2640,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-backend = [
-    { name = "tableai-backend" },
-]
 plugins = [
     { name = "tableai-plugins" },
 ]
@@ -2664,10 +2657,9 @@ requires-dist = [
     { name = "pymupdf", specifier = "==1.25.5" },
     { name = "pytesseract", specifier = "==0.3.13" },
     { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "tableai-backend", marker = "extra == 'backend'", editable = "tableai_backend" },
     { name = "tableai-plugins", marker = "extra == 'plugins'", editable = "tableai_plugins" },
 ]
-provides-extras = ["backend", "plugins"]
+provides-extras = ["plugins"]
 
 [[package]]
 name = "thop"
