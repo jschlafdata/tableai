@@ -13,7 +13,7 @@ fallback-version = "0.0.0"
 
 [project]
 name = "tableai"
-dynamic = ["version", "dependencies", "optional-dependencies"]
+dynamic = ["version", "dependencies"]
 description = "PDF Table extraction UV monorepo: core lib + backend + optional plugins (CPU/GPU)."
 authors = [
         { name = "John Schlafly", email = "john@schlafdata.com" },
@@ -37,6 +37,11 @@ dependencies = [
   "tableai-slim[plugins,backend]=={{ version }}",
   "uvicorn[standard]==0.35.0",
 ]
+
+[project.optional-dependencies]
+backend = ["tableai-backend"]
+plugins = ["tableai-plugins"]
+all = ["tableai-slim[plugins,backend]"]
 
 [tool.uv.sources]
 tableai = { workspace = true }

@@ -2522,6 +2522,17 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "tableai-slim", extra = ["plugins"] },
+]
+backend = [
+    { name = "tableai-backend" },
+]
+plugins = [
+    { name = "tableai-plugins" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
@@ -2530,9 +2541,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "tableai-backend", marker = "extra == 'backend'", editable = "tableai_backend" },
+    { name = "tableai-plugins", marker = "extra == 'plugins'", editable = "tableai_plugins" },
     { name = "tableai-slim", extras = ["backend", "plugins"], editable = "tableai_slim" },
+    { name = "tableai-slim", extras = ["backend", "plugins"], marker = "extra == 'all'", editable = "tableai_slim" },
     { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
 ]
+provides-extras = ["all", "backend", "plugins"]
 
 [package.metadata.requires-dev]
 dev = [

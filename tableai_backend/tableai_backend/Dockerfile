@@ -52,6 +52,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Expose port and define the command to run your application
 EXPOSE 8000
-CMD ["uv", "run", "tableai-api"]
 
+# Dockerfile (CMD)
+CMD ["uv", "run", "uvicorn", "--app-dir", "tableai_backend", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# CMD ["uv", "run", "tableai-api"]
 # CMD ["uv", "run", "uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
