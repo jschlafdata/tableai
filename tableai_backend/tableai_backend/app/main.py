@@ -11,6 +11,9 @@ from .security import get_password_hash
 
 from .routers import oauth_dropbox, integrations_dropbox
 from .models import OAuthToken
+
+import os
+import uvicorn
 # from .routers import classifier
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -67,3 +70,6 @@ def on_startup():
 @app.get("/", tags=["health"])
 def read_root():
     return {"status": "ok"}
+
+def main():
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

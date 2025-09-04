@@ -30,11 +30,9 @@ services:
     depends_on:
       - db
     volumes:
-      - ./tableai_backend:/app  # Fixed the volume path
-      # Mount SSH configuration and keys to a staging area (read-only for security)
       - ~/.ssh:/tmp/ssh-mount:ro
-      # Mount AWS credentials and config
       - ~/.aws:/app/.aws:ro
+      - .:/app
 
   web:
     image: node:20-alpine

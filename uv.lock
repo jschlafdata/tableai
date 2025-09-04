@@ -2519,6 +2519,7 @@ name = "tableai"
 source = { editable = "." }
 dependencies = [
     { name = "tableai-slim", extra = ["plugins"] },
+    { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.dev-dependencies]
@@ -2528,7 +2529,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tableai-slim", extras = ["backend", "plugins"], editable = "tableai_slim" }]
+requires-dist = [
+    { name = "tableai-slim", extras = ["backend", "plugins"], editable = "tableai_slim" },
+    { name = "uvicorn", extras = ["standard"], specifier = "==0.35.0" },
+]
 
 [package.metadata.requires-dev]
 dev = [

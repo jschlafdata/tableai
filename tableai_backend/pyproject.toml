@@ -62,3 +62,7 @@ allow-direct-references = true
 
 [tool.uv.sources]
 tableai-slim = { workspace = true }
+
+
+[project.scripts]
+tableai-api = "tableai_backend.app.main:main"
