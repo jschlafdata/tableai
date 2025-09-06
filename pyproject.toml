@@ -34,20 +34,13 @@ cache-keys = [
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies = [
-  "tableai-slim[plugins,backend]=={{ version }}",
-  "uvicorn[standard]==0.35.0",
+  "tableai-slim[yolo,dit]=={{ version }}"
 ]
-
-[project.optional-dependencies]
-backend = ["tableai-backend"]
-plugins = ["tableai-plugins"]
-all = ["tableai-slim[plugins,backend]"]
 
 [tool.uv.sources]
 tableai = { workspace = true }
 tableai-slim = { workspace = true }
 tableai-plugins = { workspace = true }
-tableai-backend = { workspace = true }
 
 [tool.uv.workspace]
 members = [

@@ -13,11 +13,6 @@
 
 # DATA_DIR = Path(os.getenv("DATA_DIR", "/data/pdfs")).resolve()
 
-
-# import os
-# import tempfile
-# from pathlib import Path
-
 # # Lazy import to avoid loading the DiT model at app import time
 # def _cluster_dir(pdf_dir: str, out_yaml: str, min_cluster: int):
 #     from tableai_plugins import cluster_dir  # will init HF/torch on first call

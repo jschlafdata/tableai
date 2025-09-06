@@ -16,7 +16,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.8.13 /uv /uvx /bin/
 # Base OS deps and CA setup
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
-    libpq-dev \
+    libpq-dev libgl1 libglib2.0-0 \
     git \
     curl && \
     rm -rf /var/lib/apt/lists/*
@@ -48,12 +48,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 ENV PYTHONPATH=/app
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --all-extras
+    uv sync --frozen --package tableai-backend
+
 
 # Expose port and define the command to run your application
 EXPOSE 8000
 
 # Dockerfile (CMD)
-CMD ["uv", "run", "uvicorn", "--app-dir", "tableai_backend", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# CMD ["uv", "run", "uvicorn", "--app-dir", "tableai_backend", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 # CMD ["uv", "run", "tableai-api"]
 # CMD ["uv", "run", "uvicorn", "tableai_backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]

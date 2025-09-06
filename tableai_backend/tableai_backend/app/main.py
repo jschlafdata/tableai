@@ -1,25 +1,31 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+import os
+import uvicorn
 
 from .database import Base, engine, SessionLocal
 from .core.config import settings
-from .routers import users, auth
+
+from .routers import users
+from .routers import auth
+from .routers import metadata
+# from .routers import classifier
+from .routers import oauth_dropbox
+from .routers import integrations_dropbox
+
 from .admin import init_admin
-from .models import User
 from .security import get_password_hash
 
-from .routers import oauth_dropbox, integrations_dropbox
+from .models import User
 from .models import OAuthToken
 
-import os
-import uvicorn
-# from .routers import classifier
-
 from starlette.middleware.sessions import SessionMiddleware
-import os
 
-app = FastAPI(title="Minimal FastAPI + Postgres + JWT")
+app = FastAPI(
+    title="Minimal FastAPI + Postgres + JWT",
+    openapi_url=None
+)
 
 app.add_middleware(
     SessionMiddleware,
@@ -43,6 +49,7 @@ app.include_router(users.router)
 app.include_router(oauth_dropbox.router)
 app.include_router(integrations_dropbox.router)
 # app.include_router(classifier.router)
+app.include_router(metadata.router)
 
 # Admin
 init_admin(app)
@@ -70,6 +77,7 @@ def on_startup():
 @app.get("/", tags=["health"])
 def read_root():
     return {"status": "ok"}
+
 
 def main():
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

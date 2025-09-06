@@ -30,57 +30,6 @@
 # async def sync(files: List[UploadFile]):
 #     if not files:
 #         raise HTTPException(status_code=400, detail="No files uploaded")
-
-#     data_dir = ensure_data_dir()
-#     saved: list[str] = []
-
-#     # Progress bar renders when the container runs with -t (TTY)
-#     bar = tqdm(
-#         files, desc="saving", unit="pdf",
-#         file=sys.stdout, disable=not sys.stdout.isatty()
-#     )
-
-#     for up in bar:
-#         # Prefix with UUID to avoid collisions
-#         fname = f"{uuid.uuid4()}_{up.filename}"
-#         dest = data_dir / fname
-
-#         async with aiofiles.open(dest, "wb") as out:
-#             while chunk := await up.read(64 << 10):  # 64 KiB
-#                 await out.write(chunk)
-#         await up.close()
-#         saved.append(dest.name)
-
-#     return JSONResponse({"saved": len(saved), "files": saved})
-
-
-# @router.post("/classify", summary="Cluster all staged PDFs")
-# async def classify(min_cluster: int = 4):
-#     data_dir = get_data_dir()
-#     pdfs = sorted(data_dir.glob("*.pdf"))
-#     if not pdfs:
-#         raise HTTPException(status_code=400, detail="Nothing to classify – call /classifier/sync first")
-
-#     yaml_path = run_classification(data_dir, min_cluster=min_cluster)
-#     return FileResponse(
-#         yaml_path,
-#         media_type="text/yaml",
-#         filename="clusters.yaml",
-#     )
-
-
-# @router.get("/health", include_in_schema=False)
-# async def health():
-#     return {"status": "ok"}
-
-
-
-# router = APIRouter(prefix="/classifier", tags=["classifier"])
-
-# @router.post("/sync", summary="Stage PDFs in server stash")
-# async def sync(files: List[UploadFile]):
-#     if not files:
-#         raise HTTPException(status_code=400, detail="No files uploaded")
 #     DATA_DIR.mkdir(parents=True, exist_ok=True)
 #     saved: list[str] = []
 #     bar = tqdm(files, desc="saving", unit="pdf", file=sys.stdout, disable=not sys.stdout.isatty())

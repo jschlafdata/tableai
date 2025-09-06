@@ -32,7 +32,6 @@ services:
     volumes:
       - ~/.ssh:/tmp/ssh-mount:ro
       - ~/.aws:/app/.aws:ro
-      - .:/app
 
   web:
     image: node:20-alpine

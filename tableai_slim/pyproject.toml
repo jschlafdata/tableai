@@ -27,7 +27,6 @@ Source = "https://github.com/jschlafdata/tableai/tree/main/tableai_slim"
 [tool.hatch.metadata.hooks.uv-dynamic-versioning]
 dependencies=[
     "pandas==2.2.3",
-    "numpy==2.2.4",
     "PyMuPDF==1.25.5",
     "json-repair==0.32.0",
     "pydantic==2.9.2",
@@ -40,7 +39,8 @@ dependencies=[
 ]
 
 [tool.hatch.metadata.hooks.uv-dynamic-versioning.optional-dependencies]
-plugins = ["tableai-plugins=={{ version }}"]
+yolo = [ "tableai-plugins[yolo]=={{ version }}" ]
+dit = [ "tableai-plugins[dit]=={{ version }}" ]
 
 [tool.uv]
 cache-keys = [
@@ -54,3 +54,5 @@ packages = ["tableai"]
 
 [tool.hatch.metadata]
 allow-direct-references = true
+
+[tool.uv.sources]
